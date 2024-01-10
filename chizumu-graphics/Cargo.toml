@@ -6,4 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.79"
 ash = "0.37.3"
+log = "0.4.20"
+
+# Wait for ash-window to officially support raw window handle 0.6.0
+ash-window = "0.12.0"
+raw-window-handle = "0.5.2"
+parking_lot = "0.12.1"
+
+[dependencies.gpu-allocator]
+version = "0.24.0"
+default-features = false
+features = ["ash", "vulkan", "windows"]
