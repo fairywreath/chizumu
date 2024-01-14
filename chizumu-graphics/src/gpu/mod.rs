@@ -2,10 +2,9 @@ use std::{
     ffi::{c_void, CStr, CString},
     mem::ManuallyDrop,
     sync::Arc,
-    time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ash::{self, extensions::ext::DebugUtils as ashDebugUtils, extensions::khr, vk};
 use gpu_allocator::{
     vulkan::{Allocator, AllocatorCreateDesc},
@@ -17,9 +16,10 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 pub mod command;
 pub mod device;
 pub mod resource;
+pub mod shader;
+pub mod types;
 
 const QUEUE_FAMILY_INDEX_GRAPHICS: usize = 0;
-const QUEUE_FAMILY_INDEX_PRESENT: usize = 1;
 
 struct Instance {
     entry: ash::Entry,
@@ -88,7 +88,7 @@ impl Instance {
             .map(|phys_device| {
                 PhysicalDevice::new_from_vulkan_handle(&self.raw, &surface, phys_device)
             })
-            .collect::<Result<Vec<_>>>()
+            .collect::<Result<_>>()
     }
 }
 
@@ -408,22 +408,19 @@ impl Drop for Surface {
     }
 }
 
-struct Swapchain {
+pub(crate) struct Swapchain {
     raw_ash: khr::Swapchain,
     raw_vulkan: vk::SwapchainKHR,
     images_raw: Vec<vk::Image>,
-    image_views_raw: Vec<vk::ImageView>,
-    image_index: u32,
+    pub(crate) image_views_raw: Vec<vk::ImageView>,
+    pub(crate) image_index: u32,
+    pub(crate) surface_format: vk::SurfaceFormatKHR,
+    pub(crate) extent: vk::Extent2D,
     device: Arc<DeviceShared>,
 }
 
 impl Swapchain {
-    fn new(
-        device: Arc<DeviceShared>,
-        requested_present_mode: vk::PresentModeKHR,
-        width: u32,
-        height: u32,
-    ) -> Result<Self> {
+    fn new(device: Arc<DeviceShared>, requested_present_mode: vk::PresentModeKHR) -> Result<Self> {
         let surface_format = {
             let formats = unsafe {
                 device.surface.raw_ash.get_physical_device_surface_formats(
@@ -484,8 +481,10 @@ impl Swapchain {
                 let min = capabilities.min_image_extent;
                 let max = capabilities.max_image_extent;
                 // Clamp requested extent.
-                let width = width.min(max.width).max(min.width);
-                let height = height.min(max.height).max(min.height);
+                // let width = width.min(max.width).max(min.width);
+                // let height = height.min(max.height).max(min.height);
+                let width = max.width;
+                let height = max.height;
 
                 vk::Extent2D { width, height }
             }
@@ -497,11 +496,6 @@ impl Swapchain {
 
         log::info!("Swapchain image count: {}", image_count);
         log::info!("Swapchain extent: {} X {}", extent.width, extent.height);
-
-        let queue_families = [
-            device.queue_families[QUEUE_FAMILY_INDEX_GRAPHICS].index,
-            device.queue_families[QUEUE_FAMILY_INDEX_PRESENT].index,
-        ];
 
         let create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(device.surface.raw_vulkan)
@@ -560,6 +554,8 @@ impl Swapchain {
             images_raw,
             image_views_raw,
             image_index: 0,
+            surface_format,
+            extent,
         })
     }
 
@@ -576,6 +572,7 @@ impl Swapchain {
         Ok((image_index, is_suboptimal))
     }
 
+    /// Returns whether the swapchain is suboptimal for the susrface.
     fn queue_present(&self, queue: vk::Queue, wait_semaphores: &[vk::Semaphore]) -> Result<bool> {
         let swapchains = [self.raw_vulkan];
         let image_indices = [self.image_index];
@@ -585,20 +582,43 @@ impl Swapchain {
             .swapchains(&swapchains)
             .image_indices(&image_indices);
 
-        let result = unsafe { self.raw_ash.queue_present(queue, &present_info)? };
+        let result = unsafe {
+            self.raw_ash
+                .queue_present(queue, &present_info)
+                .with_context(|| "Failed swapchain queue present!")?
+        };
 
         Ok(result)
+    }
+
+    pub(crate) fn current_image_raw(&self) -> vk::Image {
+        self.images_raw[self.image_index as usize]
+    }
+
+    pub(crate) fn current_image_view_raw(&self) -> vk::ImageView {
+        self.image_views_raw[self.image_index as usize]
+    }
+
+    fn recreate(&mut self) -> Result<()> {
+        self.destroy();
+        log::debug!("Recreating swapchain...");
+        let new_swapchain = Self::new(self.device.clone(), vk::PresentModeKHR::FIFO)?;
+        *self = new_swapchain;
+        log::debug!("Done recreating swapchain.");
+        Ok(())
     }
 
     // Desstroys all internal swapchain resources. Should not be called publicly as the swapchain structure object itself
     // is left at a valid state. This function is useful when recreating swapchains.
     fn destroy(&mut self) {
-        unsafe {
-            for image_view in self.image_views_raw.drain(..) {
-                self.device.raw.destroy_image_view(image_view, None);
-            }
+        if !self.image_views_raw.is_empty() {
+            unsafe {
+                for image_view in self.image_views_raw.drain(..) {
+                    self.device.raw.destroy_image_view(image_view, None);
+                }
 
-            self.raw_ash.destroy_swapchain(self.raw_vulkan, None);
+                self.raw_ash.destroy_swapchain(self.raw_vulkan, None);
+            }
         }
     }
 }
@@ -683,13 +703,6 @@ impl QueueFamily {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum QueueType {
-    Graphics,
-    Compute,
-    Transfer,
-}
-
 struct QueueSubmitSemaphoreDescriptor<'a> {
     semaphore: &'a Semaphore,
     stage_mask: vk::PipelineStageFlags2,
@@ -714,7 +727,7 @@ impl Queue {
         }
     }
 
-    fn submit(
+    fn submit_command_buffers(
         &self,
         command_buffers: &[vk::CommandBuffer],
         wait_semaphores: &[QueueSubmitSemaphoreDescriptor],
