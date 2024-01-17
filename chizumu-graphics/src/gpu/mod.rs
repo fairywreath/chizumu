@@ -5,7 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use ash::{self, extensions::ext::DebugUtils as ashDebugUtils, extensions::khr, vk};
+use ash::{
+    self,
+    extensions::{ext::DebugUtils as ashDebugUtils, khr, nv::MeshShader},
+    vk,
+};
 use gpu_allocator::{
     vulkan::{Allocator, AllocatorCreateDesc},
     AllocationSizes, AllocatorDebugSettings,
@@ -224,6 +228,7 @@ impl PhysicalDevice {
 pub(crate) struct DeviceShared {
     pub(crate) allocator: ManuallyDrop<Mutex<Allocator>>,
     pub(crate) raw: ash::Device,
+    pub(crate) mesh_shader_functions: MeshShader,
     queue_families: Vec<QueueFamily>,
     physical_device: PhysicalDevice,
     surface: Surface,
@@ -254,10 +259,13 @@ impl DeviceShared {
         })?;
         let allocator = Mutex::new(allocator);
 
+        let mesh_shader_functions = MeshShader::new(&instance.raw, &raw);
+
         Ok(Self {
             allocator: ManuallyDrop::new(allocator),
             queue_families,
             raw,
+            mesh_shader_functions,
             physical_device,
             surface,
             instance,

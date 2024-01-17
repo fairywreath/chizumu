@@ -214,6 +214,18 @@ impl Device {
         Ok(())
     }
 
+    pub fn swapchain_extent(&self) -> vk::Extent2D {
+        self.swapchain.lock().extent
+    }
+
+    pub fn swapchain_color_format(&self) -> vk::Format {
+        self.swapchain.lock().surface_format.format
+    }
+
+    pub fn current_frame(&self) -> u64 {
+        self.frame_counters.read().current
+    }
+
     /// Submit commands to the dedicated graphics queue for per-frame rendering work.
     pub fn queue_submit_commands_graphics(&self, command_buffer: CommandBuffer) -> Result<()> {
         let mut wait_semaphores = Vec::new();

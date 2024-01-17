@@ -84,7 +84,7 @@ pub struct PipelineDescriptor {
 
 pub struct Pipeline {
     pub(crate) raw: vk::Pipeline,
-    raw_layout: vk::PipelineLayout,
+    pub(crate) raw_layout: vk::PipelineLayout,
 
     /// XXX: Do we need to hold onto the descriptor set layouts after the pipelin layout is created?
     _descriptor_set_layouts: Vec<Arc<DescriptorSetLayout>>,
@@ -94,6 +94,7 @@ pub struct Pipeline {
 impl Drop for Pipeline {
     fn drop(&mut self) {
         unsafe {
+            // XXX: Need to wait for command buffer execution completion.
             self.device.raw.destroy_pipeline(self.raw, None);
             self.device
                 .raw
@@ -149,12 +150,13 @@ impl Drop for DescriptorSetLayout {
     }
 }
 
+#[derive(Clone)]
 pub struct DescriptorSetDescriptor {
     pub layout: Arc<DescriptorSetLayout>,
 }
 
 pub struct DescriptorSet {
-    raw: vk::DescriptorSet,
+    pub(crate) raw: vk::DescriptorSet,
 
     /// Do not need to hold the pool object itself as the global pool is tied to `Device`,
     /// and when `Device` is dropped this descriptor set object cannot be used anymore anyways.
@@ -166,11 +168,13 @@ pub struct DescriptorSet {
 
 /// XXX: The descriptor set is tehcnically responsible for keeping its bounded reosurces valid.
 /// Maybe hold a strong reference to the bounded resources as well?
+#[derive(Clone)]
 pub struct DescriptorBindingBufferWrite<'a> {
     pub buffer: &'a Buffer,
     pub binding_index: u32,
 }
 
+#[derive(Clone)]
 pub struct DescriptorBindingWrites<'a> {
     pub buffers: Vec<DescriptorBindingBufferWrite<'a>>,
 }

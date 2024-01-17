@@ -1,11 +1,15 @@
-use std::{mem::swap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
-use ash::{extensions::khr::Swapchain, vk};
+use ash::vk;
 
 use crate::gpu::QUEUE_FAMILY_INDEX_GRAPHICS;
 
-use super::{device::Device, DeviceShared};
+use super::{
+    device::Device,
+    resource::{Buffer, DescriptorSet, Pipeline},
+    DeviceShared,
+};
 
 /// Structure that wraps around the raw vulkan CommandPool object.
 pub(crate) struct CommandPool {
@@ -205,6 +209,208 @@ impl CommandBuffer {
                 .cmd_pipeline_barrier2(self.raw, &dependency_info);
         }
     }
+
+    pub fn bind_graphics_pipeline(&self, pipeline: &Pipeline) {
+        unsafe {
+            self.device.raw.cmd_bind_pipeline(
+                self.raw,
+                vk::PipelineBindPoint::GRAPHICS,
+                pipeline.raw,
+            );
+        }
+    }
+
+    pub fn bind_descriptor_set_graphics(
+        &self,
+        descriptor_set: &DescriptorSet,
+        pipeline: &Pipeline,
+    ) {
+        unsafe {
+            self.device.raw.cmd_bind_descriptor_sets(
+                self.raw,
+                vk::PipelineBindPoint::GRAPHICS,
+                pipeline.raw_layout,
+                0,
+                std::slice::from_ref(&descriptor_set.raw),
+                &[],
+            )
+        }
+    }
+
+    pub fn bind_vertex_buffers(&self, first_binding: u32, buffers: &[&Buffer], offsets: &[u64]) {
+        let raw_buffers = buffers.iter().map(|buffer| buffer.raw).collect::<Vec<_>>();
+        unsafe {
+            self.device.raw.cmd_bind_vertex_buffers2(
+                self.raw,
+                first_binding,
+                &raw_buffers,
+                offsets,
+                None,
+                None,
+            )
+        }
+    }
+
+    pub fn bind_index_buffer(&self, buffer: &Buffer, offset: u64) {
+        unsafe {
+            self.device.raw.cmd_bind_index_buffer(
+                self.raw,
+                buffer.raw,
+                offset,
+                vk::IndexType::UINT16,
+            );
+        }
+    }
+
+    pub fn draw(
+        &self,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    ) {
+        unsafe {
+            self.device.raw.cmd_draw(
+                self.raw,
+                vertex_count,
+                instance_count,
+                first_vertex,
+                first_instance,
+            );
+        }
+    }
+
+    pub fn draw_indexed(
+        &self,
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+    ) {
+        unsafe {
+            self.device.raw.cmd_draw_indexed(
+                self.raw,
+                index_count,
+                instance_count,
+                first_index,
+                vertex_offset,
+                first_instance,
+            );
+        }
+    }
+
+    pub fn draw_indirect(&self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
+        unsafe {
+            self.device
+                .raw
+                .cmd_draw_indirect(self.raw, buffer.raw, offset, draw_count, stride)
+        }
+    }
+
+    pub fn draw_indirect_count(
+        &self,
+        buffer: &Buffer,
+        buffer_offset: u64,
+        count_buffer: &Buffer,
+        count_buffer_offset: u64,
+        max_draw_count: u32,
+        stride: u32,
+    ) {
+        unsafe {
+            self.device.raw.cmd_draw_indirect_count(
+                self.raw,
+                buffer.raw,
+                buffer_offset,
+                count_buffer.raw,
+                count_buffer_offset,
+                max_draw_count,
+                stride,
+            )
+        }
+    }
+
+    pub fn draw_indexed_indirect(
+        &self,
+        buffer: &Buffer,
+        offset: u64,
+        draw_count: u32,
+        stride: u32,
+    ) {
+        unsafe {
+            self.device
+                .raw
+                .cmd_draw_indexed_indirect(self.raw, buffer.raw, offset, draw_count, stride)
+        }
+    }
+
+    pub fn draw_indexed_indirect_count(
+        &self,
+        buffer: &Buffer,
+        buffer_offset: u64,
+        count_buffer: &Buffer,
+        count_buffer_offset: u64,
+        max_draw_count: u32,
+        stride: u32,
+    ) {
+        unsafe {
+            self.device.raw.cmd_draw_indexed_indirect_count(
+                self.raw,
+                buffer.raw,
+                buffer_offset,
+                count_buffer.raw,
+                count_buffer_offset,
+                max_draw_count,
+                stride,
+            )
+        }
+    }
+
+    pub fn draw_mesh_tasks(&self, task_count: u32, first_task: u32) {
+        unsafe {
+            self.device
+                .mesh_shader_functions
+                .cmd_draw_mesh_tasks(self.raw, task_count, first_task);
+        }
+    }
+
+    pub fn draw_mesh_tasks_indirect(
+        &self,
+        buffer: &Buffer,
+        offset: u64,
+        draw_count: u32,
+        stride: u32,
+    ) {
+        unsafe {
+            self.device
+                .mesh_shader_functions
+                .cmd_draw_mesh_tasks_indirect(self.raw, buffer.raw, offset, draw_count, stride)
+        }
+    }
+
+    pub fn draw_mesh_tasks_indirect_count(
+        &self,
+        buffer: &Buffer,
+        buffer_offset: u64,
+        count_buffer: &Buffer,
+        count_buffer_offset: u64,
+        max_draw_count: u32,
+        stride: u32,
+    ) {
+        unsafe {
+            self.device
+                .mesh_shader_functions
+                .cmd_draw_mesh_tasks_indirect_count(
+                    self.raw,
+                    buffer.raw,
+                    buffer_offset,
+                    count_buffer.raw,
+                    count_buffer_offset,
+                    max_draw_count,
+                    stride,
+                )
+        }
+    }
 }
 
 impl Device {
@@ -216,7 +422,11 @@ impl Device {
 
     /// Starts dynamic rendering on the current swapchain image. Note that `Device` holds all surface/swapchain resources internally,
     /// hence it makes the most sense to put this command directly on the device.
-    pub fn command_begin_rendering_swapchain(&self, command_buffer: &CommandBuffer) {
+    pub fn command_begin_rendering_swapchain(
+        &self,
+        command_buffer: &CommandBuffer,
+        clear_color: [f32; 4],
+    ) {
         let swapchain = self.swapchain.lock();
         let swapchain_color_attachment = vk::RenderingAttachmentInfo::builder()
             .image_view(swapchain.current_image_view_raw())
@@ -226,7 +436,7 @@ impl Device {
             .store_op(vk::AttachmentStoreOp::STORE)
             .clear_value(vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [1.0, 0.0, 1.0, 1.0],
+                    float32: clear_color,
                 },
             })
             .build();

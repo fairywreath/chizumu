@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use winit::{
@@ -10,29 +10,12 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use chizumu_graphics::gpu::device::Device;
+use chizumu_graphics::{gpu::device::Device, renderer::Renderer};
 
 use crate::{audio::AudioSystem, input::InputHandler};
 
 mod audio;
 mod input;
-
-fn render(device: &Arc<Device>) -> Result<()> {
-    device.frame_begin()?;
-
-    let commands = device.get_current_command_buffer()?;
-    commands.begin()?;
-    device.command_transition_swapchain_image_layout_to_color_attachment(&commands);
-    device.command_begin_rendering_swapchain(&commands);
-    commands.end_rendering();
-    device.command_transition_swapchain_image_layout_to_present(&commands);
-    commands.end()?;
-
-    device.queue_submit_commands_graphics(commands)?;
-    device.swapchain_present()?;
-
-    Ok(())
-}
 
 fn main() {
     let env = env_logger::Env::default()
@@ -58,31 +41,43 @@ fn main() {
     // audio_system.play_music(music_index).unwrap();
 
     let input_handler = InputHandler::new();
-    let device = Arc::new(Device::new(&window, &window).unwrap());
+    let renderer = Renderer::new(Arc::new(Device::new(&window, &window).unwrap())).unwrap();
+
+    let mut last_render_time = Instant::now();
 
     event_loop
-        .run(move |event, elwt| match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => elwt.exit(),
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            ..
-                        },
-                    ..
-                } => {
-                    input_handler.handle_window_event(&event);
-                }
-                WindowEvent::Resized(_) => {
-                    // XXX: Explicitly tell the swapchain(held by `Device`) to be recreated/resized?
+        .run(move |event, eltw| {
+            eltw.set_control_flow(ControlFlow::Poll);
+
+            match event {
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => eltw.exit(),
+                    WindowEvent::KeyboardInput {
+                        event:
+                            KeyEvent {
+                                state: ElementState::Pressed,
+                                ..
+                            },
+                        ..
+                    } => {
+                        input_handler.handle_window_event(&event);
+                    }
+                    WindowEvent::Resized(_) => {
+                        // XXX: Explicitly tell the swapchain(held by `Device`) to be recreated/resized?
+                    }
+                    _ => (),
+                },
+                Event::AboutToWait => {
+                    // let now = Instant::now();
+                    // let dt = now - last_render_time;
+                    // last_render_time = now;
+
+                    // println!("Frames per second: {}", 1.0 / dt.as_secs_f64());
+
+                    renderer.render().unwrap();
                 }
                 _ => (),
-            },
-            Event::AboutToWait => {
-                render(&device).unwrap();
             }
-            _ => (),
         })
         .unwrap();
 }
