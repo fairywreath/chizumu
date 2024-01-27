@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, thread::current};
 
 use anyhow::{Context, Result};
 use ash::vk;
@@ -7,7 +7,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use super::{
     command::{CommandBuffer, CommandBufferManager},
-    resource::{DescriptorPool, PendingDestructionBuffer},
+    resource::{DescriptorPool, PendingDestructionBuffer, PendingDestructionPipeline},
     DeviceShared, Instance, Queue, QueueSubmitSemaphoreDescriptor, Semaphore, SemaphoreType,
     Surface, Swapchain, QUEUE_FAMILY_INDEX_GRAPHICS,
 };
@@ -23,6 +23,7 @@ pub(crate) struct FrameCounters {
 
 pub(crate) struct ResourceHub {
     pub(crate) pending_destruction_buffers: Vec<PendingDestructionBuffer>,
+    pub(crate) pending_destruction_pipelines: Vec<PendingDestructionPipeline>,
 }
 
 /// Structure that describes the functionality of a logical device and contains all the necessary resources
@@ -44,7 +45,7 @@ pub struct Device {
     /// Signal when queue submission is done, wait on this semaphore when presenting.
     semaphores_render_complete: [Semaphore; MAX_FRAMES],
     /// Signal semaphore when acquiring swapchain image, wait when submitting graphics command buffer work.
-    semaphore_swapchain_image_acquired: Semaphore,
+    semaphores_swapchain_image_acquired: [Semaphore; MAX_FRAMES],
     /// Timeline semaphore for general purpose rendering work. Only one semaphore required for (potentially) multiple frames in flight.
     semaphore_graphics_frame: Semaphore,
 
@@ -89,8 +90,11 @@ impl Device {
             Semaphore::new(shared.clone(), SemaphoreType::Binary)?,
             Semaphore::new(shared.clone(), SemaphoreType::Binary)?,
         ];
-        let semaphore_swapchain_image_acquired =
-            Semaphore::new(shared.clone(), SemaphoreType::Binary)?;
+        let semaphores_swapchain_image_acquired = [
+            Semaphore::new(shared.clone(), SemaphoreType::Binary)?,
+            Semaphore::new(shared.clone(), SemaphoreType::Binary)?,
+        ];
+
         let semaphore_graphics_frame = Semaphore::new(shared.clone(), SemaphoreType::Timeline)?;
 
         let command_buffer_manager = Mutex::new(CommandBufferManager::new(
@@ -101,6 +105,7 @@ impl Device {
 
         let resource_hub = Mutex::new(ResourceHub {
             pending_destruction_buffers: Vec::new(),
+            pending_destruction_pipelines: Vec::new(),
         });
 
         let global_descriptor_pool_sizes = vec![
@@ -125,7 +130,7 @@ impl Device {
             swapchain,
             queue_graphics_present,
             semaphore_graphics_frame,
-            semaphore_swapchain_image_acquired,
+            semaphores_swapchain_image_acquired,
             semaphores_render_complete,
             frame_counters: RwLock::new(FrameCounters {
                 current: 0,
@@ -157,6 +162,8 @@ impl Device {
         // as the first set does not have any graphics work beforehand.
         //
         // Need to wait for this timeline semaphore before resetting the command pool.
+        // We technically can call the command pool reset somehwere else, for example when grabbing
+        // the first command buffer for the frame.
         if self.frame_counters.read().absolute >= MAX_FRAMES as u64 {
             let graphics_wait_value = self.frame_semaphore_graphics_wait_value();
 
@@ -170,12 +177,16 @@ impl Device {
             unsafe { self.shared.raw.wait_semaphores(&wait_info, u64::MAX)? };
         }
 
+        let current_frame = self.frame_counters.read().current as usize;
         self.command_buffer_manager
             .lock()
-            .reset_command_pools(&[self.frame_counters.read().current as _])?;
+            .reset_command_pools(&[current_frame as _])?;
 
         let mut swapchain = self.swapchain.lock();
-        match swapchain.acquire_next_image(self.semaphore_swapchain_image_acquired.raw) {
+
+        match swapchain
+            .acquire_next_image(self.semaphores_swapchain_image_acquired[current_frame].raw)
+        {
             Ok((_, true)) | Err(_) => {
                 // XXX: Currently assume all errors are recreation requirement errors. Handle other errors as well.
                 // For improvements, recreate when the actual window systems detects a window resized instead of
@@ -183,7 +194,7 @@ impl Device {
                 log::debug!("Failed swapchain acquire next image!");
                 swapchain.recreate()?;
                 swapchain
-                    .acquire_next_image(self.semaphore_swapchain_image_acquired.raw)
+                    .acquire_next_image(self.semaphores_swapchain_image_acquired[current_frame].raw)
                     .with_context(|| "Failed swapchain acquire next image after recreation!")?;
             }
             _ => {}
@@ -228,25 +239,17 @@ impl Device {
 
     /// Submit commands to the dedicated graphics queue for per-frame rendering work.
     pub fn queue_submit_commands_graphics(&self, command_buffer: CommandBuffer) -> Result<()> {
+        let current_frame = self.frame_counters.read().current as usize;
         let mut wait_semaphores = Vec::new();
         wait_semaphores.push(QueueSubmitSemaphoreDescriptor {
-            semaphore: &self.semaphore_swapchain_image_acquired,
+            semaphore: &self.semaphores_swapchain_image_acquired[current_frame],
             stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
             value: None,
         });
-        // XXX: Do we need this? since we can wait directly in before beginning the next frame()?
-        // if self.frame_counters.read().absolute >= MAX_FRAMES as u64 {
-        //     wait_semaphores.push(QueueSubmitSemaphoreDescriptor {
-        //         semaphore: &self.semaphore_graphics_frame,
-        //         stage_mask: vk::PipelineStageFlags2::TOP_OF_PIPE,
-        //         value: Some(self.frame_semaphore_graphics_wait_value()),
-        //     });
-        // }
 
         let signal_semaphores = [
             QueueSubmitSemaphoreDescriptor {
-                semaphore: &self.semaphores_render_complete
-                    [self.frame_counters.read().current as usize], // XXX: Similar read as above but on a different line.... need to make sure they are the same
+                semaphore: &self.semaphores_render_complete[current_frame], // XXX: Similar read as above but on a different line.... need to make sure they are the same
                 stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
                 value: None,
             },
@@ -271,6 +274,9 @@ impl Device {
         let mut resource_hub = self.resource_hub.lock();
         for buffer in resource_hub.pending_destruction_buffers.drain(..) {
             self.destroy_buffer(buffer)?;
+        }
+        for pipeline in resource_hub.pending_destruction_pipelines.drain(..) {
+            self.destroy_pipeline(pipeline)?;
         }
 
         Ok(())

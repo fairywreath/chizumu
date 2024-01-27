@@ -59,8 +59,14 @@ impl Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         let allocation = self.allocation.take().unwrap();
-        self.device.schedule_buffer_destruction(self, allocation);
+        self.device.schedule_destruction_buffer(self, allocation);
     }
+}
+
+pub struct ImageDescriptor {}
+
+pub struct Image {
+    pub(crate) raw: vk::Image,
 }
 
 pub struct PipelineDescriptor {
@@ -88,17 +94,21 @@ pub struct Pipeline {
 
     /// XXX: Do we need to hold onto the descriptor set layouts after the pipelin layout is created?
     _descriptor_set_layouts: Vec<Arc<DescriptorSetLayout>>,
-    device: Arc<DeviceShared>,
+    device: Arc<Device>,
+}
+
+pub(crate) struct PendingDestructionPipeline {
+    raw: vk::Pipeline,
 }
 
 impl Drop for Pipeline {
     fn drop(&mut self) {
         unsafe {
-            // XXX: Need to wait for command buffer execution completion.
-            self.device.raw.destroy_pipeline(self.raw, None);
             self.device
+                .shared
                 .raw
                 .destroy_pipeline_layout(self.raw_layout, None);
+            self.device.schedule_destruction_pipeline(self);
         }
     }
 }
@@ -222,7 +232,7 @@ impl Device {
 
     /// Schedules/queues a buffer for destruction. `buffer` should no longer be used after this is called
     /// but it is passed in as a reference so this can be called inside `drop`.
-    fn schedule_buffer_destruction(&self, buffer: &Buffer, allocation: Allocation) {
+    fn schedule_destruction_buffer(&self, buffer: &Buffer, allocation: Allocation) {
         self.resource_hub
             .lock()
             .pending_destruction_buffers
@@ -242,7 +252,7 @@ impl Device {
         Ok(())
     }
 
-    pub fn create_pipeline(&self, desc: PipelineDescriptor) -> Result<Pipeline> {
+    pub fn create_pipeline(self: &Arc<Self>, desc: PipelineDescriptor) -> Result<Pipeline> {
         let descriptor_set_layouts = desc
             .descriptor_set_layouts
             .iter()
@@ -340,8 +350,23 @@ impl Device {
             raw,
             raw_layout: pipeline_layout,
             _descriptor_set_layouts: desc.descriptor_set_layouts,
-            device: self.shared.clone(),
+            device: self.clone(),
         })
+    }
+
+    fn schedule_destruction_pipeline(&self, pipeline: &Pipeline) {
+        self.resource_hub
+            .lock()
+            .pending_destruction_pipelines
+            .push(PendingDestructionPipeline { raw: pipeline.raw });
+    }
+
+    pub(crate) fn destroy_pipeline(&self, pipeline: PendingDestructionPipeline) -> Result<()> {
+        unsafe {
+            self.shared.raw.destroy_pipeline(pipeline.raw, None);
+        }
+
+        Ok(())
     }
 
     pub fn create_descriptor_set_layout(

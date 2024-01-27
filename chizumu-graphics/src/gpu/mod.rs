@@ -55,6 +55,7 @@ impl Instance {
             .application_info(&app_info)
             .enabled_extension_names(&extension_names)
             .enabled_layer_names(&layer_names);
+        // ;
 
         let raw = unsafe { entry.create_instance(&instance_info, None)? };
 

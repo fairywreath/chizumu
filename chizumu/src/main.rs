@@ -12,10 +12,11 @@ use winit::{
 
 use chizumu_graphics::{gpu::device::Device, renderer::Renderer};
 
-use crate::{audio::AudioSystem, input::InputHandler};
+use crate::{core::audio::AudioSystem, core::input::InputHandler};
 
-mod audio;
-mod input;
+mod chart;
+mod core;
+mod game;
 
 fn main() {
     let env = env_logger::Env::default()
@@ -33,16 +34,15 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    // let mut audio_system = AudioSystem::new().unwrap();
-    // let music_index = audio_system
-    //     .load_music_data("data/Music/CELERITAS.ogg")
-    //     // .load_music_data("data/Music/hitotoki_tokimeki.ogg")
-    //     .unwrap();
-    // audio_system.play_music(music_index).unwrap();
+    let mut audio_system = AudioSystem::new().unwrap();
+    let music_index = audio_system
+        // .load_music_data("data/Music/CELERITAS.ogg")
+        .load_music_data("data/Music/hitotoki_tokimeki.ogg")
+        .unwrap();
+    audio_system.play_music(music_index).unwrap();
 
     let input_handler = InputHandler::new();
-    let renderer = Renderer::new(Arc::new(Device::new(&window, &window).unwrap())).unwrap();
-
+    let mut renderer = Renderer::new(Arc::new(Device::new(&window, &window).unwrap())).unwrap();
     let mut last_render_time = Instant::now();
 
     event_loop
@@ -65,16 +65,20 @@ fn main() {
                     WindowEvent::Resized(_) => {
                         // XXX: Explicitly tell the swapchain(held by `Device`) to be recreated/resized?
                     }
+                    WindowEvent::RedrawRequested => {
+                        renderer.render().unwrap();
+                    }
                     _ => (),
                 },
                 Event::AboutToWait => {
-                    // let now = Instant::now();
-                    // let dt = now - last_render_time;
-                    // last_render_time = now;
+                    let now = Instant::now();
+                    let dt = now - last_render_time;
+                    last_render_time = now;
 
-                    // println!("Frames per second: {}", 1.0 / dt.as_secs_f64());
+                    renderer.advance_hit_runner(dt.as_secs_f32() * 5.0);
+                    renderer.update(dt.as_secs_f32()).unwrap();
 
-                    renderer.render().unwrap();
+                    window.request_redraw();
                 }
                 _ => (),
             }

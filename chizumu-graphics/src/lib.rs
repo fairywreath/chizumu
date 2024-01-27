@@ -1,6 +1,6 @@
 pub mod gpu;
+pub mod hit;
 pub mod renderer;
 
-mod hit;
 mod lane;
-mod types;
+mod line;
