@@ -12,6 +12,9 @@ use winit::{
 
 use chizumu_graphics::{gpu::device::Device, renderer::Renderer};
 
+use crate::chart::parse::parse_chart_file;
+use crate::game::conductor::Conductor;
+use crate::game::GameState;
 use crate::{core::audio::AudioSystem, core::input::InputHandler};
 
 mod chart;
@@ -36,13 +39,25 @@ fn main() {
 
     let mut audio_system = AudioSystem::new().unwrap();
     let music_index = audio_system
-        // .load_music_data("data/Music/CELERITAS.ogg")
-        .load_music_data("data/Music/hitotoki_tokimeki.ogg")
+        // .load_music_data("data/music/hitotoki_tokimeki.ogg")
+        // .load_music_data("data/music/CELERITAS.ogg")
+        .load_music_data("data/music/winddrums vs cosMo - Divine's or Deal_cut.ogg")
         .unwrap();
-    audio_system.play_music(music_index).unwrap();
 
     let input_handler = InputHandler::new();
     let mut renderer = Renderer::new(Arc::new(Device::new(&window, &window).unwrap())).unwrap();
+
+    let (chart_info, chart_timed) = parse_chart_file("data/charts/divine's_or_deal.czm").unwrap();
+
+    let mut game_state = GameState::new();
+    game_state.set_chart(chart_timed);
+    renderer.add_hit_objects(&game_state.get_chart().create_hit_objects());
+
+    let mut conductor = Conductor::new();
+    conductor
+        .start_music(&mut audio_system, music_index)
+        .unwrap();
+
     let mut last_render_time = Instant::now();
 
     event_loop
@@ -51,7 +66,9 @@ fn main() {
 
             match event {
                 Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::CloseRequested => eltw.exit(),
+                    WindowEvent::CloseRequested => {
+                        eltw.exit();
+                    }
                     WindowEvent::KeyboardInput {
                         event:
                             KeyEvent {
@@ -75,8 +92,12 @@ fn main() {
                     let dt = now - last_render_time;
                     last_render_time = now;
 
-                    renderer.advance_hit_runner(dt.as_secs_f32() * 5.0);
+                    renderer.advance_hit_runner(dt.as_secs_f32() * 8.0);
                     renderer.update(dt.as_secs_f32()).unwrap();
+
+                    game_state.update_current_music_position(
+                        conductor.get_current_music_position().unwrap(),
+                    );
 
                     window.request_redraw();
                 }

@@ -12,6 +12,7 @@ use crate::{
     },
     hit::{HitObject, HitRenderer},
     lane::LaneRenderer,
+    HIT_AREA_Z_START,
 };
 
 #[derive(Clone, Copy)]
@@ -39,30 +40,8 @@ impl Renderer {
         let lane_renderer = LaneRenderer::new(device.clone())?;
         lane_renderer.write_gpu_resources(&scene_constants_buffer)?;
 
-        let mut hit_renderer = HitRenderer::new(device.clone())?;
+        let hit_renderer = HitRenderer::new(device.clone())?;
         hit_renderer.write_gpu_resources(&scene_constants_buffer)?;
-
-        for i in 0..60 {
-            let z_start = i as f32 * 7.0;
-            hit_renderer.add_hit_objects(vec![
-                HitObject::new(0.25, -1.0, z_start + 1.5),
-                HitObject::new(0.25, 1.0, z_start + 1.5),
-                HitObject::new(0.25, 0.0, z_start + 2.0),
-                HitObject::new(0.25, 0.3, z_start + 2.5),
-                HitObject::new(0.25, -0.3, z_start + 2.5),
-                HitObject::new(0.25, -0.6, z_start + 3.0),
-                HitObject::new(0.25, -0.9, z_start + 3.0),
-                HitObject::new(0.25, 0.75, z_start + 3.5),
-                HitObject::new(0.25, -1.0, z_start + 4.5),
-                HitObject::new(0.25, 1.0, z_start + 4.5),
-                HitObject::new(0.25, 0.0, z_start + 5.0),
-                HitObject::new(0.25, 0.3, z_start + 5.5),
-                HitObject::new(0.25, -0.3, z_start + 5.5),
-                HitObject::new(0.25, -0.6, z_start + 6.0),
-                HitObject::new(0.25, -0.9, z_start + 6.0),
-                HitObject::new(0.25, 0.75, z_start + 6.5),
-            ]);
-        }
 
         Ok(Self {
             device,
@@ -113,7 +92,7 @@ impl Renderer {
     fn update_scene_constants(&self) -> Result<()> {
         // XXX: Need to find good parameters for this
         let eye = Point3::new(0.0, -1.1, 0.2);
-        let target = Point3::new(0.0, 0.5, 2.4);
+        let target = Point3::new(0.0, 0.55, 2.4);
 
         let view = Isometry3::look_at_rh(&eye, &target, &Vector3::y());
         let projection = Perspective3::new(1920.0 / 1200.0, 3.14 / 3.0, 0.01, 1000.0);
@@ -127,5 +106,9 @@ impl Renderer {
             .write_data(std::slice::from_ref(&scene_constants))?;
 
         Ok(())
+    }
+
+    pub fn add_hit_objects(&mut self, hit_objects: &[HitObject]) {
+        self.hit_renderer.add_hit_objects(hit_objects);
     }
 }

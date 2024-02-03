@@ -5,15 +5,19 @@ use ash::vk;
 use gpu_allocator::MemoryLocation;
 use nalgebra::{Vector2, Vector3, Vector4};
 
-use crate::gpu::{
-    command::CommandBuffer,
-    device::{Device, MAX_FRAMES},
-    resource::{
-        Buffer, BufferDescriptor, DescriptorBindingBufferWrite, DescriptorBindingWrites,
-        DescriptorSet, DescriptorSetDescriptor, DescriptorSetLayout, DescriptorSetLayoutDescriptor,
-        Pipeline, PipelineDescriptor,
+use crate::{
+    gpu::{
+        command::CommandBuffer,
+        device::{Device, MAX_FRAMES},
+        resource::{
+            Buffer, BufferDescriptor, DescriptorBindingBufferWrite, DescriptorBindingWrites,
+            DescriptorSet, DescriptorSetDescriptor, DescriptorSetLayout,
+            DescriptorSetLayoutDescriptor, Pipeline, PipelineDescriptor,
+        },
+        shader::{ShaderModuleDescriptor, ShaderStage},
     },
-    shader::{ShaderModuleDescriptor, ShaderStage},
+    hit::TAP_Z_RANGE,
+    HIT_AREA_Z_START,
 };
 
 struct LaneParameters {
@@ -32,12 +36,18 @@ pub struct LaneRenderer {
     ///
     /// GPU resources for base.
     buffer_position: Buffer,
-    buffer_color: Buffer,
     buffer_index: Buffer,
+    buffer_color: Buffer,
+
     /// GPU resources for base markings and overlay, eg. lane separators.
     buffer_position_overlay: Buffer,
-    buffer_color_overlay: Buffer,
     buffer_index_overlay: Buffer,
+    buffer_color_overlay: Buffer,
+
+    /// GPU resources for hit_area.
+    buffer_position_hit_area: Buffer,
+    buffer_index_hit_area: Buffer,
+    buffer_color_hit_area: Buffer,
 
     parameters: LaneParameters,
     num_separators: usize,
@@ -91,6 +101,22 @@ impl LaneRenderer {
             memory_location: MemoryLocation::CpuToGpu,
         })?;
 
+        let buffer_position_hit_area = device.create_buffer(BufferDescriptor {
+            size: 4 * 3 * (size_of::<f32>() as u64), // 4 Vector3's
+            usage_flags: vk::BufferUsageFlags::VERTEX_BUFFER,
+            memory_location: MemoryLocation::CpuToGpu,
+        })?;
+        let buffer_color_hit_area = device.create_buffer(BufferDescriptor {
+            size: 4 * 4 * (size_of::<f32>() as u64), // 4 Vector4's
+            usage_flags: vk::BufferUsageFlags::VERTEX_BUFFER,
+            memory_location: MemoryLocation::CpuToGpu,
+        })?;
+        let buffer_index_hit_area = device.create_buffer(BufferDescriptor {
+            size: 6 * (size_of::<u16>() as u64),
+            usage_flags: vk::BufferUsageFlags::INDEX_BUFFER,
+            memory_location: MemoryLocation::CpuToGpu,
+        })?;
+
         let descriptor_set_layout = Arc::new(Self::create_descriptor_set_layout(&device)?);
         let graphics_pipeline =
             Self::create_graphics_pipeline(&device, descriptor_set_layout.clone())?;
@@ -115,6 +141,9 @@ impl LaneRenderer {
             buffer_index_overlay,
             buffer_color_overlay,
             num_separators: num_separators as _,
+            buffer_position_hit_area,
+            buffer_index_hit_area,
+            buffer_color_hit_area,
         })
     }
 
@@ -125,6 +154,7 @@ impl LaneRenderer {
             &self.graphics_pipeline,
         );
 
+        // Base.
         command_buffer.bind_vertex_buffers(
             0,
             &[&self.buffer_position, &self.buffer_color],
@@ -133,6 +163,7 @@ impl LaneRenderer {
         command_buffer.bind_index_buffer(&self.buffer_index, 0);
         command_buffer.draw_indexed(6, 1, 0, 0, 0);
 
+        // Overlay - lane lines.
         command_buffer.bind_vertex_buffers(
             0,
             &[&self.buffer_position_overlay, &self.buffer_color_overlay],
@@ -140,6 +171,15 @@ impl LaneRenderer {
         );
         command_buffer.bind_index_buffer(&self.buffer_index_overlay, 0);
         command_buffer.draw_indexed(6 * (self.num_separators as u32), 1, 0, 0, 0);
+
+        // Hit area.
+        command_buffer.bind_vertex_buffers(
+            0,
+            &[&self.buffer_position_hit_area, &self.buffer_color_hit_area],
+            &[0, 0],
+        );
+        command_buffer.bind_index_buffer(&self.buffer_index_hit_area, 0);
+        command_buffer.draw_indexed(6, 1, 0, 0, 0);
     }
 
     pub fn write_gpu_resources(&self, scene_uniform_buffer: &Buffer) -> Result<()> {
@@ -182,6 +222,7 @@ impl LaneRenderer {
         let primary_lane_width = (self.parameters.x_range[0] - self.parameters.x_range[1]).abs()
             / self.parameters.num_primary_lanes as f32;
 
+        // GPU resources for overlay.
         let mut buffer_position_overlay_data = Vec::with_capacity(4 * self.num_separators as usize);
         for i in 0..self.num_separators {
             let lane_center_x = -1.0 + (i as f32 * primary_lane_width);
@@ -221,6 +262,40 @@ impl LaneRenderer {
         }
         self.buffer_index_overlay
             .write_data(&buffer_index_overlay_data)?;
+
+        // GPU resources for hit_area.
+        let hit_area_z_extend = 0.014; // Make area a bit larger than the hit objects so it feels easier and nicer to tap.
+        let position_data_hit_area = [
+            [
+                self.parameters.x_range[0],
+                0.0,
+                HIT_AREA_Z_START - hit_area_z_extend / 2.0,
+            ],
+            [
+                self.parameters.x_range[1],
+                0.0,
+                HIT_AREA_Z_START - hit_area_z_extend / 2.0,
+            ],
+            [
+                self.parameters.x_range[0],
+                0.0,
+                HIT_AREA_Z_START + TAP_Z_RANGE + hit_area_z_extend / 2.0,
+            ],
+            [
+                self.parameters.x_range[1],
+                0.0,
+                HIT_AREA_Z_START + TAP_Z_RANGE + hit_area_z_extend / 2.0,
+            ],
+        ];
+        self.buffer_position_hit_area
+            .write_data(&position_data_hit_area)?;
+
+        let buffer_color_data_hit_area = [Vector4::<f32>::new(1.0, 1.0, 0.0, 1.0); 4];
+        self.buffer_color_hit_area
+            .write_data(&buffer_color_data_hit_area)?;
+
+        let buffer_index_data: [u16; 6] = [0, 1, 2, 1, 2, 3];
+        self.buffer_index_hit_area.write_data(&buffer_index_data)?;
 
         Ok(())
     }

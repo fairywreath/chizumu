@@ -1,5 +1,6 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::collections::HashMap;
 
+use parking_lot::Mutex;
 use winit::{
     event::WindowEvent,
     keyboard::{KeyCode as WinitKeyCode, PhysicalKey},
@@ -166,14 +167,12 @@ impl InputHandler {
             RhythmControl::SwitchLane => {
                 self.audio_system
                     .lock()
-                    .unwrap()
                     .play_sound_effect(SFX_TAP_B_INDEX)
                     .unwrap();
             }
             _ => {
                 self.audio_system
                     .lock()
-                    .unwrap()
                     .play_sound_effect(SFX_TAP_A_INDEX)
                     .unwrap();
             }

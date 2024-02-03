@@ -1,4 +1,4 @@
 /target
 
-# Music and graphics assets
-/data
+/data/music/
+/data/sound_effects

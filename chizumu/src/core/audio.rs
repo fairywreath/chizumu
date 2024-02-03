@@ -2,6 +2,7 @@ use anyhow::Result;
 use kira::{
     manager::{backend::cpal::CpalBackend, AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
+    tween::Tween,
 };
 
 pub const SFX_TAP_A_INDEX: usize = 0;
@@ -20,12 +21,12 @@ impl AudioSystem {
 
         let mut sound_data_effects = Vec::new();
         sound_data_effects.push(StaticSoundData::from_file(
-            "data/Sound Effects/Arcaea/arc.wav",
-            StaticSoundSettings::new(),
+            "data/sound_effects/Arcaea/arc.wav",
+            StaticSoundSettings::new().volume(0.3),
         )?);
         sound_data_effects.push(StaticSoundData::from_file(
-            "data/Sound Effects/Idolmaster Stella Stage/se_rhythm#1 (RHY_TAP).wav",
-            StaticSoundSettings::new(),
+            "data/sound_effects/Idolmaster Stella Stage/se_rhythm#1 (RHY_TAP).wav",
+            StaticSoundSettings::new().volume(0.3),
         )?);
 
         Ok(Self {
@@ -37,7 +38,8 @@ impl AudioSystem {
 
     /// Returns index to loaded music
     pub fn load_music_data(&mut self, music_file_path: &str) -> Result<usize> {
-        let data = StaticSoundData::from_file(music_file_path, StaticSoundSettings::new())?;
+        let data =
+            StaticSoundData::from_file(music_file_path, StaticSoundSettings::new().volume(0.1))?;
         self.sound_data_music.push(data);
         Ok(self.sound_data_music.len() - 1)
     }
@@ -54,5 +56,15 @@ impl AudioSystem {
             .play(self.sound_data_music[music_index].clone())?;
 
         Ok(sound_handle)
+    }
+}
+
+impl Drop for AudioSystem {
+    fn drop(&mut self) {
+        self.audio_manager
+            .pause(Tween {
+                ..Default::default()
+            })
+            .unwrap();
     }
 }

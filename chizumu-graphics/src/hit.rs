@@ -20,16 +20,18 @@ use crate::gpu::{
     shader::{ShaderModuleDescriptor, ShaderStage},
 };
 
+pub const TAP_Z_RANGE: f32 = 0.075;
 const MAX_HIT_OBJECT_INSTANCE_COUNT: usize = 2048;
 
+#[derive(Clone)]
 pub struct HitObject {
     /// The object's scale compared to the lane, 1.0 is max.
-    x_scale: f32,
-    /// Position of the object along the lane's width(left to right).
-    x_offset: f32,
+    pub x_scale: f32,
+    /// Position of the object along the lane's widthm from -1.0 to 1.0(?).
+    pub x_offset: f32,
     /// Position of the object along the lane, higher values mean the object
     /// is deep into the lane/track and will appear later.
-    z_offset: f32,
+    pub z_offset: f32,
 }
 
 impl HitObject {
@@ -144,10 +146,13 @@ impl HitRenderer {
         self.runner_position += advance_amount;
     }
 
-    pub(crate) fn add_hit_objects(&mut self, hit_objects: Vec<HitObject>) {
+    pub(crate) fn add_hit_objects(&mut self, hit_objects: &[HitObject]) {
         for object in hit_objects {
+            let left_edge_x = -1.0;
+
             let instance_data = InstanceData {
                 model: Matrix4::new_translation(&Vector3::new(
+                    // object.x_offset + left_edge_x,
                     object.x_offset,
                     0.0,
                     object.z_offset,
@@ -159,7 +164,7 @@ impl HitRenderer {
                 color: Vector4::new(1.0, 0.0, 0.0, 1.0),
             };
             self.hit_objects_instance_data.push(instance_data);
-            self.hit_objects.push(object);
+            self.hit_objects.push(object.clone());
         }
 
         // XXX: More work required on deciding what is drawn per frame based on this data.
@@ -229,9 +234,9 @@ impl HitRenderer {
     }
 
     fn write_gpu_resources_hit_objects(&self) -> Result<()> {
-        let x_range = [-1.0, 1.0];
-        let y_range = [0.0, -0.03];
-        let z_range = [0.0, 0.075];
+        let x_range = [0.0, 2.0];
+        let y_range = [0.0, -0.02];
+        let z_range = [0.0, TAP_Z_RANGE];
 
         let position_data: Vec<[f32; 3]> = vec![
             // Front face.
