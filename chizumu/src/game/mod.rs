@@ -3,7 +3,7 @@
  */
 
 use crate::{
-    chart::{Chart, TimedNote},
+    chart::{runtime::*, *},
     core::audio::{AudioSystem, SFX_TAP_A_INDEX},
 };
 
@@ -19,7 +19,7 @@ pub struct GameState {
     ///
     /// Current song position in seconds.
     // current_song_position: f32,
-    chart: Option<Chart>,
+    chart: Option<RuntimeChart>,
     current_note_index: usize,
 }
 
@@ -33,32 +33,32 @@ impl GameState {
     }
 
     pub fn update_current_music_position(&mut self, secs: f32) {
-        if let Some(chart) = &self.chart {
-            while self.current_note_index < chart.notes.len() {
-                if chart.notes[self.current_note_index].offset < secs {
-                    // log::debug!(
-                    //     "Note offset {} less than song position {}",
-                    //     self.chart.notes[self.current_note_index].offset,
-                    //     secs
-                    // );
-                    self.audio_system
-                        .lock()
-                        .play_sound_effect(SFX_TAP_A_INDEX)
-                        .unwrap();
+        // if let Some(chart) = &self.chart {
+        //     while self.current_note_index < chart.notes.len() {
+        //         if chart.notes[self.current_note_index].offset < secs {
+        //             // log::debug!(
+        //             //     "Note offset {} less than song position {}",
+        //             //     self.chart.notes[self.current_note_index].offset,
+        //             //     secs
+        //             // );
+        //             self.audio_system
+        //                 .lock()
+        //                 .play_sound_effect(SFX_TAP_A_INDEX)
+        //                 .unwrap();
 
-                    self.current_note_index += 1;
-                } else {
-                    break;
-                }
-            }
-        }
+        //             self.current_note_index += 1;
+        //         } else {
+        //             break;
+        //         }
+        //     }
+        // }
     }
 
-    pub fn set_chart(&mut self, chart: Chart) {
+    pub fn set_chart(&mut self, chart: RuntimeChart) {
         self.chart = Some(chart);
     }
 
-    pub fn get_chart(&self) -> &Chart {
+    pub fn get_chart(&self) -> &RuntimeChart {
         // XXX: Remove this unwrap
         self.chart.as_ref().unwrap()
     }

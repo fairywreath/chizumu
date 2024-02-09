@@ -6,43 +6,24 @@ use std::{mem::size_of, sync::Arc, usize::MAX};
 use anyhow::Result;
 use ash::vk;
 use gpu_allocator::MemoryLocation;
-
 use nalgebra::{Matrix4, Vector3, Vector4};
 
-use crate::gpu::{
-    command::CommandBuffer,
-    device::{Device, MAX_FRAMES},
-    resource::{
-        Buffer, BufferDescriptor, DescriptorBindingBufferWrite, DescriptorBindingWrites,
-        DescriptorSet, DescriptorSetDescriptor, DescriptorSetLayout, DescriptorSetLayoutDescriptor,
-        Pipeline, PipelineDescriptor,
+use crate::{
+    game_components::HitObject,
+    gpu::{
+        command::CommandBuffer,
+        device::{Device, MAX_FRAMES},
+        resource::{
+            Buffer, BufferDescriptor, DescriptorBindingBufferWrite, DescriptorBindingWrites,
+            DescriptorSet, DescriptorSetDescriptor, DescriptorSetLayout,
+            DescriptorSetLayoutDescriptor, Pipeline, PipelineDescriptor,
+        },
+        shader::{ShaderModuleDescriptor, ShaderStage},
     },
-    shader::{ShaderModuleDescriptor, ShaderStage},
 };
 
 pub const TAP_Z_RANGE: f32 = 0.075;
 const MAX_HIT_OBJECT_INSTANCE_COUNT: usize = 2048;
-
-#[derive(Clone)]
-pub struct HitObject {
-    /// The object's scale compared to the lane, 1.0 is max.
-    pub x_scale: f32,
-    /// Position of the object along the lane's widthm from -1.0 to 1.0(?).
-    pub x_offset: f32,
-    /// Position of the object along the lane, higher values mean the object
-    /// is deep into the lane/track and will appear later.
-    pub z_offset: f32,
-}
-
-impl HitObject {
-    pub fn new(x_scale: f32, x_offset: f32, z_offset: f32) -> Self {
-        Self {
-            x_scale,
-            x_offset,
-            z_offset,
-        }
-    }
-}
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -144,6 +125,10 @@ impl HitRenderer {
 
     pub(crate) fn advance_runner(&mut self, advance_amount: f32) {
         self.runner_position += advance_amount;
+    }
+
+    pub(crate) fn get_runner_position(&self) -> f32 {
+        self.runner_position
     }
 
     pub(crate) fn add_hit_objects(&mut self, hit_objects: &[HitObject]) {

@@ -4,31 +4,41 @@
  */
 use anyhow::{anyhow, Result};
 
-use chizumu_graphics::{hit::HitObject, HIT_AREA_Z_START};
-
 pub mod parse;
+pub mod runtime;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+struct MusicPosition {
+    measure: u32,
+    offset: f32,
+}
+
+impl MusicPosition {
+    fn new(measure: u32, offset: f32) -> Self {
+        Self { measure, offset }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ChartInfo {
     /// Chart mapping information.
-    resolution: u32,
     starting_bpm: u32,
     starting_measure: TimeSignature,
     bpm_changes: Vec<BpmChange>,
     measure_changes: Vec<MeasureChange>,
     notes: Vec<Note>,
+    platforms: Vec<Platform>,
 
-    /// Cosmetic/visual information.
-    playfield_changes: Vec<PlayfieldChange>,
+    playfield_speed_changes: Vec<PlayfieldSpeedChange>,
 
     pub music_file_path: String,
     /// Starting offset in seconds before the first measure.
     music_starting_offset: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum NoteType {
-    TAP,
+    Tap,
 }
 
 impl TryFrom<&str> for NoteType {
@@ -36,21 +46,17 @@ impl TryFrom<&str> for NoteType {
 
     fn try_from(s: &str) -> Result<Self> {
         match s {
-            "TAP" => Ok(NoteType::TAP),
+            "TAP" => Ok(NoteType::Tap),
             _ => Err(anyhow!("Invalid string for NoteType conversion: {}", s)),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Note {
+    music_position: MusicPosition,
+
     note_type: NoteType,
-
-    /// The global measure index in which the current note starts at.
-    measure: u32,
-
-    /// Offset from the current measure scaled by the resolution.
-    offset: u32,
 
     /// Cell gives the position of the leftmost cell of the note, while width gives the number of
     /// cells the note covers.
@@ -58,7 +64,7 @@ struct Note {
     width: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TimeSignature {
     /// Top value/numerator.
     num_beats: u32,
@@ -66,108 +72,143 @@ struct TimeSignature {
     note_value: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct MeasureChange {
     /// The global measure and offset in which the change takes place.
     /// The specific time of this change depends on the last measure/time siganuture + bpm values.
-    measure: u32,
-    offset: u32,
+    music_position: MusicPosition,
 
     time_signature: TimeSignature,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct BpmChange {
     /// The global measure and offset in which the change takes place.
     /// The specific time of this change depends on the last measure/time siganuture + bpm values.
-    measure: u32,
-    offset: u32,
+    music_position: MusicPosition,
 
     bpm: u32,
 }
 
 /// Purely cosmetic playfield change.
-#[derive(Debug)]
-struct PlayfieldChange {
+#[derive(Debug, Clone)]
+struct PlayfieldSpeedChange {
     /// The global measure and offset in which the change takes place.
     /// The specific time of this change depends on the last measure/time siganuture + bpm values.
-    measure: u32,
-    offset: u32,
+    music_position: MusicPosition,
 
     /// In seconds.
     duration: f32,
     mutiplier: f32,
 }
 
-pub struct TimedNote {
-    /// Offset in seconds from the start of the piece.
-    pub offset: f32,
-    pub cell: u32,
-    pub width: u32,
+#[derive(Debug, Clone)]
+struct CommonPlatformParameters {
+    start_music_position: MusicPosition,
+    end_music_position: MusicPosition,
+    start_placement_offset: f32,
+    end_placement_offset: f32,
+    start_width: f32,
+    end_width: f32,
 }
 
-impl TimedNote {
-    pub fn new(offset: f32, cell: u32, width: u32) -> Self {
-        Self {
-            offset,
-            cell,
-            width,
+#[derive(Debug, Clone)]
+struct DynamicQuadPlatform {
+    params: CommonPlatformParameters,
+}
+
+pub trait MusicPositionable {
+    fn start_music_position(&self) -> MusicPosition;
+    fn end_music_position(&self) -> MusicPosition;
+}
+
+#[derive(Debug, Clone)]
+struct StaticPlatform {
+    start_music_position: MusicPosition,
+    placement_offset: f32,
+    width: f32,
+}
+
+#[derive(Debug, Clone)]
+struct PlatformBezierControlPoint {
+    music_position: MusicPosition,
+    placement_offset: f32, // X-axis placement.
+}
+
+#[derive(Debug, Clone)]
+struct DoubleSidedBezierPlatform {
+    params: CommonPlatformParameters,
+    left_side_control_points: (PlatformBezierControlPoint, PlatformBezierControlPoint),
+    right_side_control_points: (PlatformBezierControlPoint, PlatformBezierControlPoint),
+}
+
+/// Parallel bezier control points.
+#[derive(Debug, Clone)]
+struct DoubleSidedParallelBezierPlatform {
+    params: CommonPlatformParameters,
+    control_points: (PlatformBezierControlPoint, PlatformBezierControlPoint),
+    width: f32,
+}
+
+#[derive(Debug, Clone)]
+struct SingleSideBezierPlatform {
+    params: CommonPlatformParameters,
+    control_points: (PlatformBezierControlPoint, PlatformBezierControlPoint),
+    is_left: bool, // Whether the left or right side is the curved side.
+}
+
+#[derive(Debug, Clone)]
+enum Platform {
+    // Static(StaticPlatform),
+    DynamicQuad(DynamicQuadPlatform),
+    DoubleSidedBezier(DoubleSidedBezierPlatform),
+    DoubleSidedParallelBezier(DoubleSidedParallelBezierPlatform),
+    SingleSidedBezier(SingleSideBezierPlatform),
+}
+
+impl MusicPositionable for Platform {
+    fn start_music_position(&self) -> MusicPosition {
+        match self {
+            Self::DynamicQuad(platform) => platform.params.start_music_position.clone(),
+            Self::DoubleSidedBezier(platform) => platform.params.start_music_position.clone(),
+            Self::DoubleSidedParallelBezier(platform) => {
+                platform.params.start_music_position.clone()
+            }
+            Self::SingleSidedBezier(platform) => platform.params.start_music_position.clone(),
+        }
+    }
+
+    fn end_music_position(&self) -> MusicPosition {
+        match self {
+            Self::DynamicQuad(platform) => platform.params.end_music_position.clone(),
+            Self::DoubleSidedBezier(platform) => platform.params.end_music_position.clone(),
+            Self::DoubleSidedParallelBezier(platform) => platform.params.end_music_position.clone(),
+            Self::SingleSidedBezier(platform) => platform.params.end_music_position.clone(),
         }
     }
 }
 
-/// Structure used by the main game logic during run time.
-pub struct Chart {
-    pub notes: Vec<TimedNote>,
+#[derive(Debug, Clone)]
+enum PlatformType {
+    // XXX TODO: Properly support static/non moving platforms(ie. long moving platforms that do not change)
+    // Static,
+    DynamicQuad,
+    DoubleSidedBezier,
+    DoubleSidedParallelBezier,
+    SingleSidedBezier,
 }
 
-impl Chart {
-    pub fn create_hit_objects(&self) -> Vec<HitObject> {
-        let play_field_speed = 8.0; // z-axis movement per second.
-        let num_lanes = 8.0; // Number of individual lanes.
+impl TryFrom<&str> for PlatformType {
+    type Error = anyhow::Error;
 
-        let lane_scale = 1.0 / num_lanes; // Scale amount for one individual lane.
-        let lane_left_edge_offset = -1.0; // X axis offset for leftmost lane.
-
-        let base_width = 2.0;
-        let lane_width = base_width / num_lanes;
-
-        self.notes
-            .iter()
-            .map(|note| HitObject {
-                x_scale: lane_scale * note.width as f32,
-                x_offset: lane_left_edge_offset + (note.cell as f32 * lane_width),
-                z_offset: (play_field_speed * note.offset) + HIT_AREA_Z_START,
-            })
-            .collect::<Vec<_>>()
-    }
-}
-
-impl ChartInfo {
-    pub fn create_timed_chart(&self) -> Result<Chart> {
-        // log::debug!("{:#?}", self);
-
-        // A BPM is the number of quarter notes in a minute(60 sconds).
-        let seconds_per_minute = 60.0;
-        let time_per_measure = seconds_per_minute
-            / (self.starting_bpm as f32 / self.starting_measure.num_beats as f32);
-
-        let mut notes = Vec::new();
-
-        for note in &self.notes {
-            notes.push(TimedNote::new(
-                self.music_starting_offset
-                    + ((note.measure as f32 * time_per_measure)
-                        + (time_per_measure * (note.offset as f32 / self.resolution as f32))),
-                note.cell,
-                note.width,
-            ))
+    fn try_from(s: &str) -> Result<Self> {
+        match s {
+            // "STATIC" => Ok(PlatformType::Static),
+            "DQ" => Ok(PlatformType::DynamicQuad),
+            "DSB" => Ok(PlatformType::DoubleSidedBezier),
+            "DSPB" => Ok(PlatformType::DoubleSidedParallelBezier),
+            "SSB" => Ok(PlatformType::SingleSidedBezier),
+            _ => Err(anyhow!("Invalid string for PlatformType conversion: {}", s)),
         }
-
-        log::debug!("Timed notes length: {}", notes.len());
-
-        let chart = Chart { notes };
-
-        Ok(chart)
     }
 }

@@ -4,18 +4,18 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-use super::*;
+use super::{runtime::RuntimeChart, *};
 
-static COMMENT_STR: &str = "//";
+const COMMENT_STR: &str = "//";
 
 enum Tag {
-    Resolution,
     StartingBpm,
     StartingMeasure,
+    Notes,
+    Platforms,
     BpmChanges,
     MeasureChanges,
     PlayfieldChanges,
-    Notes,
     MusicFilePath,
     MusicStartingOffset,
 }
@@ -25,13 +25,13 @@ impl TryFrom<&str> for Tag {
 
     fn try_from(s: &str) -> Result<Self> {
         match s {
-            "RESOLUTION" => Ok(Tag::Resolution),
             "STARTING_BPM" => Ok(Tag::StartingBpm),
             "STARTING_MEASURE" => Ok(Tag::StartingMeasure),
             "BPM_CHANGES" => Ok(Tag::BpmChanges),
             "MEASURE_CHANGES" => Ok(Tag::MeasureChanges),
             "PLAYFIELD_CHANGES" => Ok(Tag::PlayfieldChanges),
             "NOTES" => Ok(Tag::Notes),
+            "PLATFORMS" => Ok(Tag::Platforms),
             "MUSIC_FILE_PATH" => Ok(Tag::MusicFilePath),
             "MUSIC_STARTING_OFFSET" => Ok(Tag::MusicStartingOffset),
             _ => Err(anyhow!("Invalid string for Tag conversion: {}", s)),
@@ -47,11 +47,95 @@ where
     Ok(io::BufReader::new(file).lines())
 }
 
+/// Starts from index 0 of `subs`.
+fn parse_bezier_control_points(subs: &[&str]) -> Result<PlatformBezierControlPoint> {
+    Ok(PlatformBezierControlPoint {
+        music_position: MusicPosition::new(subs[0].parse()?, subs[1].parse()?),
+        placement_offset: subs[2].parse()?,
+    })
+}
+
+fn parse_is_left(val: &str) -> Result<bool> {
+    if val == "l" {
+        Ok(true)
+    } else if val == "r" {
+        Ok(false)
+    } else {
+        Err(anyhow!("Unrecognized `is left` token `{}`", val))
+    }
+}
+
+/// Starts from index 1 of `subs`.
+fn parse_common_platform_parameters(subs: &[&str]) -> Result<CommonPlatformParameters> {
+    Ok(CommonPlatformParameters {
+        start_music_position: MusicPosition::new(subs[1].parse()?, subs[2].parse()?),
+        end_music_position: MusicPosition::new(subs[3].parse()?, subs[4].parse()?),
+        start_placement_offset: subs[5].parse()?,
+        end_placement_offset: subs[6].parse()?,
+        start_width: subs[7].parse()?,
+        end_width: subs[8].parse()?,
+    })
+}
+
+fn parse_platform(subs: &[&str]) -> Result<Platform> {
+    let platform_type = PlatformType::try_from(subs[0]).unwrap();
+    let platform;
+
+    match platform_type {
+        // PlatformType::Static => {
+        //     platform = Platform::Static(StaticPlatform {
+        //         start_music_position: MusicPosition::new(subs[1].parse()?, subs[2].parse()?),
+        //         width: subs[3].parse()?,
+        //         placement_offset: subs[4].parse()?,
+        //     })
+        // }
+        PlatformType::DynamicQuad => {
+            platform = Platform::DynamicQuad(DynamicQuadPlatform {
+                params: parse_common_platform_parameters(subs)?,
+            })
+        }
+        PlatformType::DoubleSidedBezier => {
+            platform = Platform::DoubleSidedBezier(DoubleSidedBezierPlatform {
+                params: parse_common_platform_parameters(subs)?,
+                left_side_control_points: (
+                    parse_bezier_control_points(&subs[9..])?,
+                    parse_bezier_control_points(&subs[12..])?,
+                ),
+                right_side_control_points: (
+                    parse_bezier_control_points(&subs[15..])?,
+                    parse_bezier_control_points(&subs[18..])?,
+                ),
+            })
+        }
+        PlatformType::DoubleSidedParallelBezier => {
+            platform = Platform::DoubleSidedParallelBezier(DoubleSidedParallelBezierPlatform {
+                params: parse_common_platform_parameters(subs)?,
+                control_points: (
+                    parse_bezier_control_points(&subs[9..])?,
+                    parse_bezier_control_points(&subs[12..])?,
+                ),
+                width: subs[15].parse()?,
+            })
+        }
+        PlatformType::SingleSidedBezier => {
+            platform = Platform::SingleSidedBezier(SingleSideBezierPlatform {
+                params: parse_common_platform_parameters(subs)?,
+                control_points: (
+                    parse_bezier_control_points(&subs[9..])?,
+                    parse_bezier_control_points(&subs[12..])?,
+                ),
+                is_left: parse_is_left(&subs[15])?,
+            })
+        }
+    };
+
+    Ok(platform)
+}
+
 fn parse_chart_file_to_chart_info(file_path: &str) -> Result<ChartInfo> {
     let lines = read_lines(file_path)?;
 
     let initial_chart_info = ChartInfo {
-        resolution: 0,
         starting_bpm: 0,
         starting_measure: TimeSignature {
             num_beats: 0,
@@ -60,7 +144,8 @@ fn parse_chart_file_to_chart_info(file_path: &str) -> Result<ChartInfo> {
         bpm_changes: Vec::new(),
         measure_changes: Vec::new(),
         notes: Vec::new(),
-        playfield_changes: Vec::new(),
+        platforms: Vec::new(),
+        playfield_speed_changes: Vec::new(),
         music_file_path: String::new(),
         music_starting_offset: 0.0,
     };
@@ -88,14 +173,18 @@ fn parse_chart_file_to_chart_info(file_path: &str) -> Result<ChartInfo> {
                                     note_value: subs[1].parse().unwrap(),
                                 }
                             }
-                            Tag::Resolution => chart_info.resolution = subs[0].parse().unwrap(),
-                            Tag::Notes => chart_info.notes.push(Note {
-                                note_type: NoteType::try_from(subs[0]).unwrap(),
-                                measure: subs[1].parse().unwrap(),
-                                offset: subs[2].parse().unwrap(),
-                                cell: subs[3].parse().unwrap(),
-                                width: subs[4].parse().unwrap(),
-                            }),
+                            Tag::Platforms => {
+                                chart_info.platforms.push(parse_platform(&subs).unwrap());
+                            }
+                            // Tag::Notes => chart_info.notes.push(Note {
+                            //     note_type: NoteType::try_from(subs[0]).unwrap(),
+                            //     music_position: MusicPosition::new(
+                            //         subs[1].parse().unwrap(),
+                            //         subs[2].parse().unwrap(),
+                            //     ),
+                            //     cell: subs[3].parse().unwrap(),
+                            //     width: subs[4].parse().unwrap(),
+                            // }),
                             Tag::MusicFilePath => {
                                 chart_info.music_file_path = String::from(subs[0])
                             }
@@ -119,9 +208,9 @@ fn parse_chart_file_to_chart_info(file_path: &str) -> Result<ChartInfo> {
     Ok(chart_info)
 }
 
-pub fn parse_chart_file(file_path: &str) -> Result<(ChartInfo, Chart)> {
+pub fn parse_chart_file(file_path: &str) -> Result<(ChartInfo, RuntimeChart)> {
     let chart_info = parse_chart_file_to_chart_info(file_path)?;
-    let chart = chart_info.create_timed_chart()?;
+    let chart = chart_info.create_runtime_chart()?;
 
     Ok((chart_info, chart))
 }

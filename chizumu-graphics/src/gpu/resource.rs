@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::CString,
-    mem::{align_of, size_of_val},
+    mem::{align_of, size_of, size_of_val},
     sync::Arc,
 };
 
@@ -46,6 +46,29 @@ impl Buffer {
                 .mapped_ptr()
                 .unwrap()
                 .as_ptr();
+
+            let mut align =
+                ash::util::Align::new(data_ptr, align_of::<T>() as _, size_of_val(data) as _);
+            align.copy_from_slice(data);
+        };
+
+        Ok(())
+    }
+
+    pub fn write_data_with_value_offset<T: Copy>(
+        &self,
+        data: &[T],
+        value_offset: u64,
+    ) -> Result<()> {
+        unsafe {
+            let data_ptr = self
+                .allocation
+                .as_ref()
+                .unwrap()
+                .mapped_ptr()
+                .unwrap()
+                .as_ptr()
+                .add(value_offset as usize * size_of::<T>());
 
             let mut align =
                 ash::util::Align::new(data_ptr, align_of::<T>() as _, size_of_val(data) as _);

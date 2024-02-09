@@ -6,11 +6,10 @@ use winit::{
     dpi,
     event::{ElementState, Event, KeyEvent, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    raw_window_handle::{HasRawWindowHandle, HasWindowHandle},
-    window::{Window, WindowBuilder},
+    window::WindowBuilder,
 };
 
-use chizumu_graphics::{gpu::device::Device, renderer::Renderer};
+use chizumu_graphics::renderer::Renderer;
 
 use crate::chart::parse::parse_chart_file;
 use crate::game::conductor::Conductor;
@@ -39,26 +38,33 @@ fn main() {
 
     let mut audio_system = AudioSystem::new().unwrap();
     let music_index = audio_system
-        // .load_music_data("data/music/hitotoki_tokimeki.ogg")
-        // .load_music_data("data/music/CELERITAS.ogg")
         .load_music_data("data/music/winddrums vs cosMo - Divine's or Deal_cut.ogg")
         .unwrap();
 
     let input_handler = InputHandler::new();
-    let mut renderer = Renderer::new(Arc::new(Device::new(&window, &window).unwrap())).unwrap();
+    let mut renderer = Renderer::new(&window, &window).unwrap();
 
-    let (chart_info, chart_timed) = parse_chart_file("data/charts/divine's_or_deal.czm").unwrap();
+    let runner_speed = 5.0;
 
-    let mut game_state = GameState::new();
-    game_state.set_chart(chart_timed);
-    renderer.add_hit_objects(&game_state.get_chart().create_hit_objects());
+    let (_, runtime_chart) = parse_chart_file("data/charts/divine's_or_deal2.czm").unwrap();
 
-    let mut conductor = Conductor::new();
-    conductor
-        .start_music(&mut audio_system, music_index)
+    renderer
+        .set_platform_objects(runtime_chart.create_platform_objects(runner_speed))
         .unwrap();
 
-    let mut last_render_time = Instant::now();
+    // let mut game_state = GameState::new();
+    // game_state.set_chart(chart_timed);
+
+    let mut conductor = Conductor::new();
+
+    // renderer.add_hit_objects(&game_state.get_chart().create_hit_objects());
+    conductor
+        .start_music(&mut audio_system, music_index)
+        // .start_music(&mut audio_system, 0)
+        .unwrap();
+
+    let mut last_music_position = 0.0;
+    let mut last_frame_time = Instant::now();
 
     event_loop
         .run(move |event, eltw| {
@@ -89,15 +95,18 @@ fn main() {
                 },
                 Event::AboutToWait => {
                     let now = Instant::now();
-                    let dt = now - last_render_time;
-                    last_render_time = now;
+                    let frame_dt = now - last_frame_time;
+                    last_frame_time = now;
 
-                    renderer.advance_hit_runner(dt.as_secs_f32() * 8.0);
-                    renderer.update(dt.as_secs_f32()).unwrap();
+                    let current_music_position = conductor.get_current_music_position().unwrap();
+                    let music_dt = current_music_position - last_music_position;
+                    last_music_position = current_music_position;
 
-                    game_state.update_current_music_position(
-                        conductor.get_current_music_position().unwrap(),
-                    );
+                    renderer
+                        .update(frame_dt.as_secs_f32(), music_dt * runner_speed)
+                        .unwrap();
+
+                    // game_state.update_current_music_position(current_music_position);
 
                     window.request_redraw();
                 }
