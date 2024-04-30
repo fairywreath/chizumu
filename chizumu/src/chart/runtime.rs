@@ -27,50 +27,51 @@ impl RuntimePlatform {
     }
 }
 
-// pub struct RuntimeNote {
-//     /// Offset in seconds from the start of the piece.
-//     pub offset: f32,
-//     pub cell: u32,
-//     pub width: u32,
-// }
+pub struct RuntimeNote {
+    /// Offset in seconds from the start of the piece.
+    pub offset: f32,
+    pub cell: u32,
+    pub width: u32,
+}
 
-// impl RuntimeNote {
-//     pub fn new(offset: f32, cell: u32, width: u32) -> Self {
-//         Self {
-//             offset,
-//             cell,
-//             width,
-//         }
-//     }
-// }
+impl RuntimeNote {
+    pub fn new(offset: f32, cell: u32, width: u32) -> Self {
+        Self {
+            offset,
+            cell,
+            width,
+        }
+    }
+}
 
 /// Structure used by the main game logic during run time.
 pub struct RuntimeChart {
-    // pub notes: Vec<RuntimeNote>,
+    notes: Vec<RuntimeNote>,
     platforms: Vec<RuntimePlatform>,
-    chart_info: ChartInfo,
+
+    pub chart_info: ChartInfo,
 }
 
 impl RuntimeChart {
-    // pub fn create_hit_objects(&self) -> Vec<HitObject> {
-    //     let play_field_speed = 8.0; // z-axis movement per second.
-    //     let num_lanes = 8.0; // Number of individual lanes.
+    pub fn create_hit_objects(&self) -> Vec<HitObject> {
+        let play_field_speed = 7.0; // z-axis movement per second.
+        let num_lanes = 10.0; // Number of individual lanes.
 
-    //     let lane_scale = 1.0 / num_lanes; // Scale amount for one individual lane.
-    //     let lane_left_edge_offset = -1.0; // X axis offset for leftmost lane.
+        let lane_scale = 1.0 / num_lanes; // Scale amount for one individual lane.
+        let lane_left_edge_offset = -1.0; // X axis offset for leftmost lane.
 
-    //     let base_width = 2.0;
-    //     let lane_width = base_width / num_lanes;
+        let base_width = 2.0;
+        let lane_width = base_width / num_lanes;
 
-    //     self.notes
-    //         .iter()
-    //         .map(|note| HitObject {
-    //             x_scale: lane_scale * note.width as f32,
-    //             x_offset: lane_left_edge_offset + (note.cell as f32 * lane_width),
-    //             z_offset: (play_field_speed * note.offset) + HIT_AREA_Z_START,
-    //         })
-    //         .collect::<Vec<_>>()
-    // }
+        self.notes
+            .iter()
+            .map(|note| HitObject {
+                x_scale: lane_scale * note.width as f32,
+                x_offset: lane_left_edge_offset + (note.cell as f32 * lane_width),
+                z_offset: (play_field_speed * note.offset) + HIT_AREA_Z_START,
+            })
+            .collect::<Vec<_>>()
+    }
 
     /// `runner_speed` - distance covered by runner per second.
     pub fn create_platform_objects(&self, runner_speed: f32) -> Vec<PlatformObject> {
@@ -277,7 +278,7 @@ impl ChartInfo {
                 + (time_per_measure * music_position.offset))
     }
 
-    pub fn create_runtime_chart(&self) -> Result<RuntimeChart> {
+    pub fn create_runtime_chart(self) -> Result<RuntimeChart> {
         log::debug!("{:#?}", self);
 
         let platforms = self
@@ -290,9 +291,19 @@ impl ChartInfo {
             })
             .collect::<Vec<_>>();
 
+        let mut notes = Vec::new();
+        for note in &self.notes {
+            notes.push(RuntimeNote::new(
+                self.music_position_to_seconds(&note.music_position),
+                note.cell,
+                note.width,
+            ))
+        }
+
         let chart = RuntimeChart {
+            notes,
             platforms,
-            chart_info: self.clone(),
+            chart_info: self,
         };
         Ok(chart)
     }

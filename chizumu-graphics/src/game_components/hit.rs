@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-pub const TAP_Z_RANGE: f32 = 0.075;
+pub const TAP_Z_RANGE: f32 = 0.14;
 const MAX_HIT_OBJECT_INSTANCE_COUNT: usize = 2048;
 
 #[derive(Clone, Copy)]
@@ -220,7 +220,7 @@ impl HitRenderer {
 
     fn write_gpu_resources_hit_objects(&self) -> Result<()> {
         let x_range = [0.0, 2.0];
-        let y_range = [0.0, -0.02];
+        let y_range = [0.0, -0.08];
         let z_range = [0.0, TAP_Z_RANGE];
 
         let position_data: Vec<[f32; 3]> = vec![
@@ -307,7 +307,6 @@ impl HitRenderer {
             .input_rate(vk::VertexInputRate::VERTEX)
             .build()];
 
-        // Only 1 render target.
         let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
             .blend_enable(false)
             .color_write_mask(vk::ColorComponentFlags::RGBA)

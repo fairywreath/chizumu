@@ -36,18 +36,33 @@ pub struct ChartInfo {
     music_starting_offset: f32,
 }
 
-#[derive(Debug, Clone)]
-enum NoteType {
-    Tap,
+#[derive(Debug, Clone, Copy)]
+enum NoteInputType {
+    Tap1,
+    Tap2,
+    Tap3,
+    Tap4,
+    TapMove1,
+    TapMove2,
+    TapWidth,
 }
 
-impl TryFrom<&str> for NoteType {
+impl TryFrom<&str> for NoteInputType {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self> {
         match s {
-            "TAP" => Ok(NoteType::Tap),
-            _ => Err(anyhow!("Invalid string for NoteType conversion: {}", s)),
+            "T1" => Ok(NoteInputType::Tap1),
+            "T2" => Ok(NoteInputType::Tap2),
+            "T3" => Ok(NoteInputType::Tap3),
+            "T4" => Ok(NoteInputType::Tap4),
+            "TM1" => Ok(NoteInputType::TapMove1),
+            "TM2" => Ok(NoteInputType::TapMove2),
+            "TW" => Ok(NoteInputType::TapWidth),
+            _ => Err(anyhow!(
+                "Invalid string for NoteInputType conversion: {}",
+                s
+            )),
         }
     }
 }
@@ -56,7 +71,7 @@ impl TryFrom<&str> for NoteType {
 struct Note {
     music_position: MusicPosition,
 
-    note_type: NoteType,
+    note_type: NoteInputType,
 
     /// Cell gives the position of the leftmost cell of the note, while width gives the number of
     /// cells the note covers.

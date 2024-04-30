@@ -4,7 +4,7 @@
 
 use crate::{
     chart::{runtime::*, *},
-    core::audio::{AudioSystem, SFX_TAP_A_INDEX},
+    core::audio::AudioSystem,
 };
 
 use parking_lot::Mutex;
@@ -56,10 +56,5 @@ impl GameState {
 
     pub fn set_chart(&mut self, chart: RuntimeChart) {
         self.chart = Some(chart);
-    }
-
-    pub fn get_chart(&self) -> &RuntimeChart {
-        // XXX: Remove this unwrap
-        self.chart.as_ref().unwrap()
     }
 }

@@ -270,7 +270,8 @@ pub(crate) struct PlatformRenderer {
 impl PlatformRenderer {
     pub(crate) fn new(device: Arc<Device>) -> Result<Self> {
         let global_parameters = GlobalPlatformParameters {
-            z_range: Vector2::new(-1.0, 20.0),
+            // XXX TODO: Make this configurable, esp. the z view distance
+            z_range: Vector2::new(-1.0, 50.0),
             base_color: Vector4::new(0.3, 0.2, 0.8, 1.0),
         };
 
@@ -300,7 +301,7 @@ impl PlatformRenderer {
             quad_platform_ssbo_offset,
         )?;
 
-        // XXX TODO: Have thie configurable by the user.
+        // XXX TODO: Have this configurable by the user.
         let curve_sided_platform_object_vertex_count = CURVE_SIDED_PLATFORM_VERTEX_COUNT;
         let curve_sided_platform_ssbo_offset = 1 * max_platform_instances_per_mesh_type;
         let curve_sided_plane_renderer = SingleMeshTypePlatformRenderer::new(
@@ -324,58 +325,6 @@ impl PlatformRenderer {
             device.create_descriptor_set(descriptor_set_desc.clone())?,
             device.create_descriptor_set(descriptor_set_desc.clone())?,
         ];
-
-        // let platforms = Vec::new();
-
-        // let complex_plane = Plane::one_sided_cubic_bezier(
-        //     Vector2::new(-0.0, 2.0),
-        //     Vector2::new(-0.0, 8.0),
-        //     (Vector2::new(-1.0, 4.0), Vector2::new(-1.0, 6.0)),
-        //     Vector2::new(1.0, 2.0),
-        //     Vector2::new(1.0, 8.0),
-        //     20,
-        // );
-        // log::debug!(
-        //     "Bezier plane num vertices {}, num indices {}",
-        //     complex_plane.vertices.len(),
-        //     complex_plane.indices.len()
-        // );
-        // println!("Indicies {:?}", &complex_plane.indices);
-
-        // let plane2 = Plane::two_sided_parallel_cubic_bezier(
-        //     Vector2::new(0.5, 10.0),
-        //     Vector2::new(0.5, 17.0),
-        //     (Vector2::new(-1.0, 12.0), Vector2::new(-1.0, 15.0)),
-        //     0.5,
-        //     40,
-        // );
-        // log::debug!(
-        //     "Bezier plane num vertices {}, num indices {}",
-        //     plane2.vertices.len(),
-        //     plane2.indices.len()
-        // );
-
-        // buffer_positions_platforms.write_data(&complex_plane.vertices)?;
-        // buffer_indices_platforms.write_data(&complex_plane.indices)?;
-        // // buffer_positions_platforms.write_data(&plane2.vertices)?;
-        // // buffer_indices_platforms.write_data(&plane2.indices)?;
-
-        // let plane3 = Plane::two_sided_cubic_bezier(
-        //     Vector2::new(-0.5, 5.0),
-        //     Vector2::new(-0.5, 10.0),
-        //     (Vector2::new(-1.0, 6.5), Vector2::new(-1.0, 8.5)),
-        //     Vector2::new(0.5, 5.0),
-        //     Vector2::new(0.5, 10.0),
-        //     (Vector2::new(1.0, 6.5), Vector2::new(1.0, 8.5)),
-        //     40,
-        // );
-        // log::debug!(
-        //     "Bezier plane num vertices {}, num indices {}",
-        //     plane3.vertices.len(),
-        //     plane3.indices.len()
-        // );
-        // // buffer_positions_platforms.write_data(&plane3.vertices)?;
-        // // buffer_indices_platforms.write_data(&plane3.indices)?;
 
         Ok(Self {
             global_parameters,

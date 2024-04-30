@@ -39,7 +39,7 @@ pub struct Renderer {
     runner_position: f32,
 
     platform_renderer: PlatformRenderer,
-    // hit_renderer: HitRenderer,
+    hit_renderer: HitRenderer,
     // lane_renderer: LaneRenderer,
     // line_renderer: LineRenderer,
 }
@@ -60,33 +60,8 @@ impl Renderer {
         let platform_renderer = PlatformRenderer::new(device.clone())?;
         platform_renderer.write_initital_gpu_resources(&scene_constants_buffer)?;
 
-        // let plane3 = Plane::two_sided_cubic_bezier(
-        //     Vector2::new(-0.5, 5.0),
-        //     Vector2::new(-0.5, 10.0),
-        //     (Vector2::new(-1.0, 6.5), Vector2::new(-1.0, 8.5)),
-        //     Vector2::new(0.5, 5.0),
-        //     Vector2::new(0.5, 10.0),
-        //     (Vector2::new(1.0, 6.5), Vector2::new(1.0, 8.5)),
-        //     40,
-        // );
-        // log::debug!(
-        //     "Bezier plane num vertices {}, num indices {}",
-        //     plane3.vertices.len(),
-        //     plane3.indices.len()
-        // );
-
-        // let quad = Plane::quad(
-        //     Vector2::new(-1.0, 3.0),
-        //     Vector2::new(1.0, 3.0),
-        //     Vector2::new(-1.0, 7.0),
-        //     Vector2::new(1.0, 7.0),
-        // );
-        // let platform1 = PlatformObject::new_dynamic_plane(0.0, 100.0, plane3.clone());
-        // let platform2 = PlatformObject::new_dynamic_plane(15.0, 100.0, plane3.clone());
-        // let platform3 = PlatformObject::new_dynamic_plane(10.0, 100.0, quad.clone());
-        // let platform4 = PlatformObject::new_dynamic_plane(20.0, 100.0, quad.clone());
-        // platform_renderer
-        //     .set_platforms_objects(vec![platform1, platform2, platform3, platform4])?;
+        let hit_renderer = HitRenderer::new(device.clone())?;
+        hit_renderer.write_gpu_resources(&scene_constants_buffer)?;
 
         Ok(Self {
             device,
@@ -94,7 +69,7 @@ impl Renderer {
             runner_position: 0.0,
             platform_renderer,
             // lane_renderer,
-            // hit_renderer,
+            hit_renderer,
             // line_renderer,
         })
     }
@@ -120,8 +95,8 @@ impl Renderer {
         // self.line_renderer
         //     .write_render_commands(&commands, self.device.current_frame());
 
-        // self.hit_renderer
-        // .write_render_commands(&commands, self.device.current_frame());
+        self.hit_renderer
+            .write_render_commands(&commands, self.device.current_frame());
 
         commands.end_rendering();
         self.device
@@ -135,8 +110,8 @@ impl Renderer {
     }
 
     pub fn update(&mut self, frame_dt: f32, runner_dp: f32) -> Result<()> {
-        // self.hit_renderer.update()?;
-        // self.hit_renderer.advance_runner(advance_amount);
+        self.hit_renderer.update()?;
+        self.hit_renderer.advance_runner(runner_dp);
 
         self.runner_position += runner_dp;
 
@@ -148,8 +123,8 @@ impl Renderer {
 
     fn update_scene_constants(&self) -> Result<()> {
         // XXX TODO: Need to find good parameters for this
-        let eye = Point3::new(0.0, -1.1, 0.2);
-        let target = Point3::new(0.0, 0.55, 2.4);
+        let eye = Point3::new(0.0, -1.54, 0.2);
+        let target = Point3::new(0.0, 0.7, 3.0);
 
         let view = Isometry3::look_at_rh(&eye, &target, &Vector3::y());
         let projection = Perspective3::new(1920.0 / 1200.0, 3.14 / 3.0, 0.01, 1000.0);
@@ -162,7 +137,6 @@ impl Renderer {
             view_projection,
             viewport: Vector2::new(1920, 1200),
             runner: Matrix4::new_translation(&Vector3::new(0.0, 0.0, -self.runner_position)),
-            // runner: Matrix4::identity(),
             _pad0: Vector2::identity(),
         };
         self.scene_constants_buffer
@@ -178,7 +152,7 @@ impl Renderer {
         Ok(())
     }
 
-    // pub fn add_hit_objects(&mut self, hit_objects: &[HitObject]) {
-    //     self.hit_renderer.add_hit_objects(hit_objects);
-    // }
+    pub fn add_hit_objects(&mut self, hit_objects: &[HitObject]) {
+        self.hit_renderer.add_hit_objects(hit_objects);
+    }
 }

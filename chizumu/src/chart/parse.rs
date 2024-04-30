@@ -186,7 +186,7 @@ fn parse_chart_file_to_chart_info(file_path: &str) -> Result<ChartInfo> {
                             //     width: subs[4].parse().unwrap(),
                             // }),
                             Tag::MusicFilePath => {
-                                chart_info.music_file_path = String::from(subs[0])
+                                chart_info.music_file_path = String::from(line.trim())
                             }
                             Tag::MusicStartingOffset => {
                                 chart_info.music_starting_offset = subs[0].parse().unwrap()
@@ -208,9 +208,8 @@ fn parse_chart_file_to_chart_info(file_path: &str) -> Result<ChartInfo> {
     Ok(chart_info)
 }
 
-pub fn parse_chart_file(file_path: &str) -> Result<(ChartInfo, RuntimeChart)> {
+pub fn parse_chart_file(file_path: &str) -> Result<RuntimeChart> {
     let chart_info = parse_chart_file_to_chart_info(file_path)?;
     let chart = chart_info.create_runtime_chart()?;
-
-    Ok((chart_info, chart))
+    Ok(chart)
 }

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use winit::{
-    event::WindowEvent,
+    event::{ElementState, MouseButton, WindowEvent},
     keyboard::{KeyCode as WinitKeyCode, PhysicalKey},
 };
 
@@ -83,98 +83,139 @@ impl From<&PhysicalKey> for KeyCode {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
-pub enum RhythmControl {
-    TapBottom1,
-    TapBottom2,
-    TapBottom3,
-    TapBottom4,
-    TapBottom5,
-    TapBottom6,
-    TapBottom7,
-    TapBottom8,
-    TapTop1,
-    TapTop2,
-    TapTop3,
-    TapTop4,
-    TapTop5,
-    TapTop6,
-    TapTop7,
-    TapTop8,
-    SwitchLane,
-    TapAvatarLeft,
-    TapAvatarMiddle,
-    TapAvatarRight,
+enum RhythmControlInput {
+    Tap1,
+    Tap2,
+    Tap3,
+    Tap4,
+    TapMove1,
+    TapMove2,
+    TapWide,
 }
 
-pub struct InputHandler {
-    rhythm_control_keybindings: HashMap<KeyCode, RhythmControl>,
+enum RhythmControlInputState {
+    Pressed,
+    Unpressed,
+}
+
+struct RhythmControlState {
+    states: HashMap<RhythmControlInput, RhythmControlInputState>,
+}
+
+impl RhythmControlState {
+    fn new() -> Self {
+        let mut states = HashMap::new();
+
+        states.insert(RhythmControlInput::Tap1, RhythmControlInputState::Unpressed);
+        states.insert(RhythmControlInput::Tap2, RhythmControlInputState::Unpressed);
+        states.insert(RhythmControlInput::Tap3, RhythmControlInputState::Unpressed);
+        states.insert(RhythmControlInput::Tap4, RhythmControlInputState::Unpressed);
+        states.insert(
+            RhythmControlInput::TapMove1,
+            RhythmControlInputState::Unpressed,
+        );
+        states.insert(
+            RhythmControlInput::TapMove2,
+            RhythmControlInputState::Unpressed,
+        );
+        states.insert(
+            RhythmControlInput::TapWide,
+            RhythmControlInputState::Unpressed,
+        );
+
+        Self { states }
+    }
+}
+
+pub(crate) struct RhythmControlInputHandler {
+    rhythm_control_keybindings: HashMap<KeyCode, RhythmControlInput>,
+
+    /// XXX: Maybe an RwLock is better here.
+    rhythm_control_state: Mutex<RhythmControlState>,
 
     /// XXX: Use an existing audio system to properly mix with music sound(?)
     audio_system: Mutex<AudioSystem>,
 }
 
-impl InputHandler {
-    pub fn new() -> Self {
+impl RhythmControlInputHandler {
+    pub(crate) fn new() -> Self {
         let mut rhythm_control_keybindings = HashMap::new();
 
-        rhythm_control_keybindings.insert(KeyCode::Z, RhythmControl::TapBottom1);
-        rhythm_control_keybindings.insert(KeyCode::X, RhythmControl::TapBottom2);
-        rhythm_control_keybindings.insert(KeyCode::C, RhythmControl::TapBottom3);
-        rhythm_control_keybindings.insert(KeyCode::V, RhythmControl::TapBottom4);
-        rhythm_control_keybindings.insert(KeyCode::B, RhythmControl::TapBottom5);
-        rhythm_control_keybindings.insert(KeyCode::N, RhythmControl::TapBottom6);
-        rhythm_control_keybindings.insert(KeyCode::M, RhythmControl::TapBottom7);
-        rhythm_control_keybindings.insert(KeyCode::Comma, RhythmControl::TapBottom8);
-
-        rhythm_control_keybindings.insert(KeyCode::A, RhythmControl::TapTop1);
-        rhythm_control_keybindings.insert(KeyCode::S, RhythmControl::TapTop2);
-        rhythm_control_keybindings.insert(KeyCode::D, RhythmControl::TapTop3);
-        rhythm_control_keybindings.insert(KeyCode::F, RhythmControl::TapTop4);
-        rhythm_control_keybindings.insert(KeyCode::G, RhythmControl::TapTop5);
-        rhythm_control_keybindings.insert(KeyCode::H, RhythmControl::TapTop6);
-        rhythm_control_keybindings.insert(KeyCode::J, RhythmControl::TapTop7);
-        rhythm_control_keybindings.insert(KeyCode::K, RhythmControl::TapTop8);
-
-        rhythm_control_keybindings.insert(KeyCode::Space, RhythmControl::SwitchLane);
-
-        rhythm_control_keybindings.insert(KeyCode::Q, RhythmControl::TapAvatarLeft);
-        rhythm_control_keybindings.insert(KeyCode::W, RhythmControl::TapAvatarMiddle);
-        rhythm_control_keybindings.insert(KeyCode::E, RhythmControl::TapAvatarRight);
+        rhythm_control_keybindings.insert(KeyCode::Q, RhythmControlInput::Tap1);
+        rhythm_control_keybindings.insert(KeyCode::W, RhythmControlInput::Tap2);
+        rhythm_control_keybindings.insert(KeyCode::E, RhythmControlInput::Tap3);
+        rhythm_control_keybindings.insert(KeyCode::R, RhythmControlInput::Tap4);
+        rhythm_control_keybindings.insert(KeyCode::Space, RhythmControlInput::TapWide);
 
         Self {
             rhythm_control_keybindings,
+            rhythm_control_state: Mutex::new(RhythmControlState::new()),
             audio_system: Mutex::new(AudioSystem::new().unwrap()),
         }
     }
 
-    pub fn handle_window_event(&self, window_event: &WindowEvent) {
+    pub(crate) fn handle_window_event(&self, window_event: &WindowEvent) {
         match window_event {
             WindowEvent::KeyboardInput { event, .. } => {
-                self.handle_keyboard_input(KeyCode::from(&event.physical_key))
+                self.handle_keyboard_input(KeyCode::from(&event.physical_key), event.state)
+            }
+            WindowEvent::MouseInput { button, state, .. } => {
+                self.handle_mouse_input(&button, *state)
             }
             _ => {}
         }
     }
 
-    fn handle_keyboard_input(&self, keycode: KeyCode) {
-        if let Some(rhythm_control) = self.rhythm_control_keybindings.get(&keycode) {
-            self.update_rhythm_control(rhythm_control);
+    fn handle_keyboard_input(&self, keycode: KeyCode, state: ElementState) {
+        if let Some(control_input) = self.rhythm_control_keybindings.get(&keycode) {
+            self.update_rhythm_control_state(*control_input, state);
         }
     }
 
-    fn update_rhythm_control(&self, rhythm_control: &RhythmControl) {
-        match rhythm_control {
-            RhythmControl::SwitchLane => {
-                self.audio_system
-                    .lock()
-                    .play_sound_effect(SFX_TAP_B_INDEX)
-                    .unwrap();
+    fn handle_mouse_input(&self, button: &MouseButton, state: ElementState) {
+        let control_input = match button {
+            MouseButton::Left => Some(RhythmControlInput::TapMove1),
+            MouseButton::Right => Some(RhythmControlInput::TapMove2),
+            _ => None,
+        };
+
+        if let Some(control_input) = control_input {
+            self.update_rhythm_control_state(control_input, state);
+        }
+    }
+
+    fn update_rhythm_control_state(&self, control_input: RhythmControlInput, state: ElementState) {
+        let mut control_state = self.rhythm_control_state.lock();
+        match state {
+            ElementState::Pressed => {
+                if let Some(input_state) = control_state.states.get(&control_input) {
+                    match input_state {
+                        RhythmControlInputState::Pressed => {
+                            // Held on pressed.
+                        }
+                        RhythmControlInputState::Unpressed => {
+                            // Unpressed -> pressed.
+                            self.play_tap_sound(control_input);
+                            control_state
+                                .states
+                                .insert(control_input, RhythmControlInputState::Pressed);
+                        }
+                    }
+                }
             }
+            ElementState::Released => {
+                control_state
+                    .states
+                    .insert(control_input, RhythmControlInputState::Unpressed);
+            }
+        }
+    }
+
+    /// XXX: Figure out the best way to play these tap sounds as fast as possible, want minimum latency between press -> sound.
+    fn play_tap_sound(&self, rhythm_control: RhythmControlInput) {
+        match rhythm_control {
             _ => {
-                self.audio_system
-                    .lock()
-                    .play_sound_effect(SFX_TAP_A_INDEX)
-                    .unwrap();
+                self.audio_system.lock().play_sound_effect(0).unwrap();
             }
         }
     }
