@@ -2,7 +2,6 @@ pub mod game_components;
 pub mod mesh;
 pub mod renderer;
 
-mod gpu;
 mod line;
 
 /// "Bottom" z-axis start offset of the hit area.

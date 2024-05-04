@@ -1,0 +1,23 @@
+[package]
+name = "chizumu-gpu"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.82"
+ash = "0.38.0"
+ash-window = "0.13.0"
+crossbeam-channel = "0.5.12"
+log = "0.4.21"
+parking_lot = "0.12.2"
+raw-window-handle = "0.6.0"
+
+[dependencies.gpu-allocator]
+# Wait for ash 0.38.0 bump on main.
+# version = "0.24.0"
+git = "https://github.com/Traverse-Research/gpu-allocator.git"
+branch = "ash-0.38"
+default-features = false
+features = ["ash", "vulkan", "windows"]

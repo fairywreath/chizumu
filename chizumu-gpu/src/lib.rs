@@ -5,17 +5,13 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use ash::{
-    self,
-    extensions::{ext::DebugUtils as ashDebugUtils, khr, nv::MeshShader},
-    vk,
-};
+use ash::{ext::debug_utils, khr, nv::mesh_shader};
 use gpu_allocator::{
     vulkan::{Allocator, AllocatorCreateDesc},
     AllocationSizes, AllocatorDebugSettings,
 };
 use parking_lot::Mutex;
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
 pub mod command;
 pub mod device;
@@ -23,44 +19,47 @@ pub mod resource;
 pub mod shader;
 pub mod types;
 
+/// External dependencies exposed outside of currrent crate.
+pub use ash::{self, vk};
+pub use gpu_allocator;
+pub use raw_window_handle;
+
 const QUEUE_FAMILY_INDEX_GRAPHICS: usize = 0;
 
 struct Instance {
     entry: ash::Entry,
     raw: ash::Instance,
-    debug_utils: ashDebugUtils,
+    debug_utils: debug_utils::Instance,
     debug_utils_messenger: vk::DebugUtilsMessengerEXT,
 }
 
 impl Instance {
-    fn new(display_handle: &dyn HasRawDisplayHandle) -> Result<Self> {
+    fn new(display_handle: RawDisplayHandle) -> Result<Self> {
         let entry = unsafe { ash::Entry::load()? };
 
         // Create Vulkan instance
         let app_name = CString::new("Rikka").unwrap();
-        let app_info = vk::ApplicationInfo::builder()
+        let app_info = vk::ApplicationInfo::default()
             .application_name(app_name.as_c_str())
             .api_version(vk::API_VERSION_1_3);
 
         let mut extension_names =
-            ash_window::enumerate_required_extensions(display_handle.raw_display_handle())?
-                .to_vec();
-        extension_names.push(ashDebugUtils::name().as_ptr());
+            ash_window::enumerate_required_extensions(display_handle)?.to_vec();
+        extension_names.push(debug_utils::NAME.as_ptr());
 
         let layer_strings = vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
         let layer_names: Vec<*const i8> =
             layer_strings.iter().map(|c_str| c_str.as_ptr()).collect();
 
-        let instance_info = vk::InstanceCreateInfo::builder()
+        let instance_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_extension_names(&extension_names)
             .enabled_layer_names(&layer_names);
-        // ;
 
         let raw = unsafe { entry.create_instance(&instance_info, None)? };
 
         // Create Vulkan debug utils messenger
-        let debug_utils_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        let debug_utils_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
             .flags(vk::DebugUtilsMessengerCreateFlagsEXT::empty())
             .message_severity(
                 vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
@@ -74,7 +73,7 @@ impl Instance {
             )
             .pfn_user_callback(Some(vulkan_debug_utils_callback));
 
-        let debug_utils = ashDebugUtils::new(&entry, &raw);
+        let debug_utils = debug_utils::Instance::new(&entry, &raw);
         let debug_utils_messenger =
             unsafe { debug_utils.create_debug_utils_messenger(&debug_utils_info, None)? };
 
@@ -138,12 +137,12 @@ struct PhysicalDevice {
     raw: vk::PhysicalDevice,
     name: String,
     device_type: vk::PhysicalDeviceType,
-    limits: vk::PhysicalDeviceLimits,
-    properties: vk::PhysicalDeviceProperties,
+    _limits: vk::PhysicalDeviceLimits,
+    _properties: vk::PhysicalDeviceProperties,
     queue_families: Vec<QueueFamily>,
-    supported_extensions: Vec<String>,
-    supported_surface_formats: Vec<vk::SurfaceFormatKHR>,
-    supported_present_modes: Vec<vk::PresentModeKHR>,
+    _supported_extensions: Vec<String>,
+    _supported_surface_formats: Vec<vk::SurfaceFormatKHR>,
+    _supported_present_modes: Vec<vk::PresentModeKHR>,
 }
 
 impl PhysicalDevice {
@@ -204,18 +203,18 @@ impl PhysicalDevice {
             raw,
             name,
             device_type,
-            limits,
-            properties,
+            _limits: limits,
+            _properties: properties,
             queue_families,
-            supported_extensions,
-            supported_surface_formats,
-            supported_present_modes,
+            _supported_extensions: supported_extensions,
+            _supported_surface_formats: supported_surface_formats,
+            _supported_present_modes: supported_present_modes,
         })
     }
 
-    fn supports_extensions(&self, extensions: &[&str]) -> bool {
+    fn _supports_extensions(&self, extensions: &[&str]) -> bool {
         let supported_extensions = self
-            .supported_extensions
+            ._supported_extensions
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
@@ -229,7 +228,7 @@ impl PhysicalDevice {
 pub(crate) struct DeviceShared {
     pub(crate) allocator: ManuallyDrop<Mutex<Allocator>>,
     pub(crate) raw: ash::Device,
-    pub(crate) mesh_shader_functions: MeshShader,
+    pub(crate) mesh_shader_functions: mesh_shader::Device,
     queue_families: Vec<QueueFamily>,
     physical_device: PhysicalDevice,
     surface: Surface,
@@ -260,7 +259,7 @@ impl DeviceShared {
         })?;
         let allocator = Mutex::new(allocator);
 
-        let mesh_shader_functions = MeshShader::new(&instance.raw, &raw);
+        let mesh_shader_functions = mesh_shader::Device::new(&instance.raw, &raw);
 
         Ok(Self {
             allocator: ManuallyDrop::new(allocator),
@@ -292,10 +291,9 @@ impl DeviceShared {
             indices
                 .iter()
                 .map(|index| {
-                    vk::DeviceQueueCreateInfo::builder()
+                    vk::DeviceQueueCreateInfo::default()
                         .queue_family_index(*index)
                         .queue_priorities(&queue_priorities)
-                        .build()
                 })
                 .collect::<Vec<_>>()
         };
@@ -310,10 +308,10 @@ impl DeviceShared {
             .map(|ext| ext.as_ptr())
             .collect::<Vec<_>>();
 
-        let mut vulkan11_features = vk::PhysicalDeviceVulkan11Features::builder()
+        let mut vulkan11_features = vk::PhysicalDeviceVulkan11Features::default()
             .shader_draw_parameters(true)
             .storage_buffer16_bit_access(true);
-        let mut vulkan12_features = vk::PhysicalDeviceVulkan12Features::builder()
+        let mut vulkan12_features = vk::PhysicalDeviceVulkan12Features::default()
             .descriptor_indexing(true)
             .runtime_descriptor_array(true)
             .descriptor_binding_partially_bound(true)
@@ -324,16 +322,16 @@ impl DeviceShared {
             .shader_sampled_image_array_non_uniform_indexing(true)
             .buffer_device_address(true)
             .storage_buffer8_bit_access(true);
-        let mut vulkan13_features = vk::PhysicalDeviceVulkan13Features::builder()
+        let mut vulkan13_features = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
             .synchronization2(true);
 
-        let mut mesh_shader_features = vk::PhysicalDeviceMeshShaderFeaturesNV::builder()
+        let mut mesh_shader_features = vk::PhysicalDeviceMeshShaderFeaturesNV::default()
             .mesh_shader(true)
             .task_shader(true);
 
         // PhysicalDeviceFeatures 2 reports ALL of GPU's device features capabilies. Pass this along pNext chain to enable all.
-        let mut device_features2 = vk::PhysicalDeviceFeatures2::builder();
+        let mut device_features2 = vk::PhysicalDeviceFeatures2::default();
         unsafe {
             instance
                 .raw
@@ -345,7 +343,7 @@ impl DeviceShared {
             .push_next(&mut vulkan13_features)
             .push_next(&mut mesh_shader_features);
 
-        let device_create_info = vk::DeviceCreateInfo::builder()
+        let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&device_extension_strs)
             .push_next(&mut device_features2);
@@ -381,23 +379,23 @@ fn select_discrete_gpu(devices: &[PhysicalDevice]) -> Result<PhysicalDevice> {
     Ok(device.clone())
 }
 struct Surface {
-    raw_ash: khr::Surface,
+    raw_ash: khr::surface::Instance,
     raw_vulkan: vk::SurfaceKHR,
 }
 
 impl Surface {
     fn new(
         instance: &Instance,
-        window_handle: &dyn HasRawWindowHandle,
-        display_handle: &dyn HasRawDisplayHandle,
+        window_handle: RawWindowHandle,
+        display_handle: RawDisplayHandle,
     ) -> Result<Self> {
-        let raw_ash = khr::Surface::new(&instance.entry, &instance.raw);
+        let raw_ash = khr::surface::Instance::new(&instance.entry, &instance.raw);
         let raw_vulkan = unsafe {
             ash_window::create_surface(
                 &instance.entry,
                 &instance.raw,
-                display_handle.raw_display_handle(),
-                window_handle.raw_window_handle(),
+                display_handle,
+                window_handle,
                 None,
             )?
         };
@@ -418,7 +416,7 @@ impl Drop for Surface {
 }
 
 pub(crate) struct Swapchain {
-    raw_ash: khr::Swapchain,
+    raw_ash: khr::swapchain::Device,
     raw_vulkan: vk::SwapchainKHR,
     images_raw: Vec<vk::Image>,
     pub(crate) image_views_raw: Vec<vk::ImageView>,
@@ -487,13 +485,9 @@ impl Swapchain {
             if capabilities.current_extent.width != std::u32::MAX {
                 capabilities.current_extent
             } else {
-                let min = capabilities.min_image_extent;
-                let max = capabilities.max_image_extent;
-                // Clamp requested extent.
-                // let width = width.min(max.width).max(min.width);
-                // let height = height.min(max.height).max(min.height);
-                let width = max.width;
-                let height = max.height;
+                let max_extent = capabilities.max_image_extent;
+                let width = max_extent.width;
+                let height = max_extent.height;
 
                 vk::Extent2D { width, height }
             }
@@ -506,7 +500,7 @@ impl Swapchain {
         log::info!("Swapchain image count: {}", image_count);
         log::info!("Swapchain extent: {} X {}", extent.width, extent.height);
 
-        let create_info = vk::SwapchainCreateInfoKHR::builder()
+        let create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(device.surface.raw_vulkan)
             .min_image_count(image_count)
             .image_format(surface_format.format)
@@ -523,33 +517,31 @@ impl Swapchain {
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE) // Graphics and present queue are the same family
             .present_mode(present_mode);
 
-        let raw_ash = khr::Swapchain::new(&device.instance.raw, &device.raw);
+        let raw_ash = khr::swapchain::Device::new(&device.instance.raw, &device.raw);
         let raw_vulkan = unsafe { raw_ash.create_swapchain(&create_info, None)? };
 
         let images_raw = unsafe { raw_ash.get_swapchain_images(raw_vulkan)? };
         let image_views_raw = images_raw
             .iter()
             .map(|image| {
-                let image_view_info = vk::ImageViewCreateInfo::builder()
+                let image_view_info = vk::ImageViewCreateInfo::default()
                     .image(image.clone())
                     .view_type(vk::ImageViewType::TYPE_2D)
                     .format(surface_format.format)
                     .components(
-                        vk::ComponentMapping::builder()
+                        vk::ComponentMapping::default()
                             .r(vk::ComponentSwizzle::IDENTITY)
                             .g(vk::ComponentSwizzle::IDENTITY)
                             .b(vk::ComponentSwizzle::IDENTITY)
-                            .a(vk::ComponentSwizzle::IDENTITY)
-                            .build(),
+                            .a(vk::ComponentSwizzle::IDENTITY),
                     )
                     .subresource_range(
-                        vk::ImageSubresourceRange::builder()
+                        vk::ImageSubresourceRange::default()
                             .aspect_mask(vk::ImageAspectFlags::COLOR)
                             .base_mip_level(0)
                             .level_count(1)
                             .base_array_layer(0)
-                            .layer_count(1)
-                            .build(),
+                            .layer_count(1),
                     );
 
                 Ok(unsafe { device.raw.create_image_view(&image_view_info, None)? })
@@ -586,7 +578,7 @@ impl Swapchain {
         let swapchains = [self.raw_vulkan];
         let image_indices = [self.image_index];
 
-        let present_info = vk::PresentInfoKHR::builder()
+        let present_info = vk::PresentInfoKHR::default()
             .wait_semaphores(&wait_semaphores)
             .swapchains(&swapchains)
             .image_indices(&image_indices);
@@ -707,7 +699,7 @@ impl QueueFamily {
             .contains(vk::QueueFlags::TRANSFER)
     }
 
-    fn supports_timestamps(&self) -> bool {
+    fn _supports_timestamps(&self) -> bool {
         self.properties.timestamp_valid_bits > 0
     }
 }
@@ -724,7 +716,7 @@ struct Queue {
     /// Handy for queue submission.
     ash_device: ash::Device,
     raw: vk::Queue,
-    family_index: u32,
+    _family_index: u32,
 }
 
 impl Queue {
@@ -732,7 +724,7 @@ impl Queue {
         Self {
             ash_device,
             raw,
-            family_index,
+            _family_index: family_index,
         }
     }
 
@@ -745,7 +737,7 @@ impl Queue {
         let wait_semaphores_info = wait_semaphores
             .iter()
             .map(|submit_info| {
-                let semaphore_submit_info = vk::SemaphoreSubmitInfo::builder()
+                vk::SemaphoreSubmitInfo::default()
                     .semaphore(submit_info.semaphore.raw)
                     .stage_mask(submit_info.stage_mask)
                     .value(
@@ -756,16 +748,14 @@ impl Queue {
                         } else {
                             0
                         },
-                    );
-
-                semaphore_submit_info.build()
+                    )
             })
             .collect::<Vec<_>>();
 
         let signal_semaphores_info = signal_semaphores
             .iter()
             .map(|submit_info| {
-                let semaphore_submit_info = vk::SemaphoreSubmitInfo::builder()
+                vk::SemaphoreSubmitInfo::default()
                     .semaphore(submit_info.semaphore.raw)
                     .stage_mask(submit_info.stage_mask)
                     .value(
@@ -776,26 +766,21 @@ impl Queue {
                         } else {
                             0
                         },
-                    );
-
-                semaphore_submit_info.build()
+                    )
             })
             .collect::<Vec<_>>();
 
         let command_buffer_submit_infos = command_buffers
             .into_iter()
             .map(|command_buffer| {
-                vk::CommandBufferSubmitInfo::builder()
-                    .command_buffer(command_buffer.clone())
-                    .build()
+                vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer.clone())
             })
             .collect::<Vec<_>>();
 
-        let submit_info = vk::SubmitInfo2::builder()
+        let submit_info = vk::SubmitInfo2::default()
             .wait_semaphore_infos(&wait_semaphores_info[..])
             .signal_semaphore_infos(&signal_semaphores_info[..])
-            .command_buffer_infos(&command_buffer_submit_infos[..])
-            .build();
+            .command_buffer_infos(&command_buffer_submit_infos[..]);
 
         unsafe {
             self.ash_device.queue_submit2(
@@ -824,10 +809,10 @@ struct Semaphore {
 
 impl Semaphore {
     fn new(device: Arc<DeviceShared>, semaphore_type: SemaphoreType) -> Result<Self> {
-        let semaphore_info = vk::SemaphoreCreateInfo::builder();
+        let semaphore_info = vk::SemaphoreCreateInfo::default();
 
         let mut semaphore_type_info =
-            vk::SemaphoreTypeCreateInfo::builder().semaphore_type(vk::SemaphoreType::BINARY);
+            vk::SemaphoreTypeCreateInfo::default().semaphore_type(vk::SemaphoreType::BINARY);
         if semaphore_type == SemaphoreType::Timeline {
             semaphore_type_info = semaphore_type_info.semaphore_type(vk::SemaphoreType::TIMELINE);
         }

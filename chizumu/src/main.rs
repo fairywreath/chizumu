@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{
     dpi,
     event::{ElementState, Event, KeyEvent, WindowEvent},
@@ -9,7 +10,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use chizumu_graphics::renderer::Renderer;
+use chizumu_rendering::renderer::Renderer;
 
 use crate::chart::parse::parse_chart_file;
 use crate::chart::runtime;
@@ -39,7 +40,11 @@ fn main() {
         .unwrap();
 
     // Initialize renderer.
-    let mut renderer = Renderer::new(&window, &window).unwrap();
+    let mut renderer = Renderer::new(
+        window.window_handle().unwrap().as_raw(),
+        window.display_handle().unwrap().as_raw(),
+    )
+    .unwrap();
 
     // Initialize audio system.
     let mut audio_system = AudioSystem::new().unwrap();

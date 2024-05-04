@@ -1,9 +1,9 @@
-use std::{sync::Arc, thread::current};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use ash::vk;
 use parking_lot::{Mutex, RwLock};
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
 use super::{
     command::{CommandBuffer, CommandBufferManager},
@@ -59,10 +59,7 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(
-        window_handle: &dyn HasRawWindowHandle,
-        display_handle: &dyn HasRawDisplayHandle,
-    ) -> Result<Self> {
+    pub fn new(window_handle: RawWindowHandle, display_handle: RawDisplayHandle) -> Result<Self> {
         let instance = Instance::new(display_handle)?;
         let surface = Surface::new(&instance, window_handle, display_handle)?;
         let shared = Arc::new(DeviceShared::new(instance, surface)?);
@@ -109,19 +106,16 @@ impl Device {
         });
 
         let global_descriptor_pool_sizes = vec![
-            vk::DescriptorPoolSize::builder()
+            vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(GLOBAL_DESCRIPTOR_POOL_DESCRIPTOR_COUNT)
-                .build(),
-            vk::DescriptorPoolSize::builder()
+                .descriptor_count(GLOBAL_DESCRIPTOR_POOL_DESCRIPTOR_COUNT),
+            vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(GLOBAL_DESCRIPTOR_POOL_DESCRIPTOR_COUNT)
-                .build(),
+                .descriptor_count(GLOBAL_DESCRIPTOR_POOL_DESCRIPTOR_COUNT),
         ];
-        let global_descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::builder()
+        let global_descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(2048)
-            .pool_sizes(&global_descriptor_pool_sizes)
-            .build();
+            .pool_sizes(&global_descriptor_pool_sizes);
         let global_descriptor_pool =
             DescriptorPool::new(shared.clone(), global_descriptor_pool_create_info)?;
 
@@ -170,7 +164,7 @@ impl Device {
             let wait_values = [graphics_wait_value];
             let semaphores = [self.semaphore_graphics_frame.raw];
 
-            let wait_info = vk::SemaphoreWaitInfo::builder()
+            let wait_info = vk::SemaphoreWaitInfo::default()
                 .semaphores(&semaphores)
                 .values(&wait_values);
 

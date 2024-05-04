@@ -5,7 +5,7 @@ use crate::chart::MusicPositionable;
 
 use super::{ChartInfo, MusicPosition, Platform};
 
-use chizumu_graphics::{
+use chizumu_rendering::{
     game_components::{HitObject, PlatformObject, CURVE_SIDED_PLATFORM_BEZIER_SUBDIVISONS},
     mesh::plane::Plane,
     HIT_AREA_Z_START,

@@ -193,7 +193,7 @@ impl Device {
         let mut cursor = std::io::Cursor::new(bytes);
         let code = ash::util::read_spv(&mut cursor)?;
 
-        let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
+        let create_info = vk::ShaderModuleCreateInfo::default().code(&code);
         let raw = unsafe { self.shared.raw.create_shader_module(&create_info, None)? };
 
         Ok(ShaderModule {

@@ -1,10 +1,20 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use ash::vk;
-use gpu_allocator::MemoryLocation;
+use chizumu_gpu::{
+    ash::vk,
+    command::CommandBuffer,
+    device::{Device, MAX_FRAMES},
+    gpu_allocator::MemoryLocation,
+    raw_window_handle::{RawDisplayHandle, RawWindowHandle},
+    resource::{
+        Buffer, BufferDescriptor, DescriptorBindingBufferWrite, DescriptorBindingWrites,
+        DescriptorSet, DescriptorSetDescriptor, DescriptorSetLayout, DescriptorSetLayoutDescriptor,
+        Pipeline, PipelineDescriptor,
+    },
+    shader::{ShaderModuleDescriptor, ShaderStage},
+};
 use nalgebra::{Isometry3, Matrix4, Orthographic3, Perspective3, Point3, Vector2, Vector3};
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::{
     game_components::{
@@ -12,10 +22,6 @@ use crate::{
         lane::{self, LaneRenderer},
         platform::PlatformRenderer,
         DynamicPlanePlatform, HitObject, PlatformObject,
-    },
-    gpu::{
-        device::{Device, MAX_FRAMES},
-        resource::{Buffer, BufferDescriptor},
     },
     line::LineRenderer,
     mesh::plane::Plane,
@@ -45,10 +51,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(
-        window_handle: &dyn HasRawWindowHandle,
-        display_handle: &dyn HasRawDisplayHandle,
-    ) -> Result<Self> {
+    pub fn new(window_handle: RawWindowHandle, display_handle: RawDisplayHandle) -> Result<Self> {
         let device = Arc::new(Device::new(window_handle, display_handle)?);
 
         let scene_constants_buffer = device.create_buffer(BufferDescriptor {

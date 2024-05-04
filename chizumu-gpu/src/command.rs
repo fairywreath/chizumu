@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use ash::vk;
 
-use crate::gpu::QUEUE_FAMILY_INDEX_GRAPHICS;
+use crate::QUEUE_FAMILY_INDEX_GRAPHICS;
 
 use super::{
     device::Device,
@@ -20,7 +20,7 @@ pub(crate) struct CommandPool {
 impl CommandPool {
     pub(crate) fn new(device: Arc<DeviceShared>, queue_family_index: u32) -> Result<Self> {
         let command_pool_info =
-            vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family_index);
+            vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index);
 
         let raw = unsafe {
             let command_pool = device.raw.create_command_pool(&command_pool_info, None)?;
@@ -38,7 +38,7 @@ impl CommandPool {
         level: vk::CommandBufferLevel,
         count: u32,
     ) -> Result<Vec<vk::CommandBuffer>> {
-        let allocate_info = vk::CommandBufferAllocateInfo::builder()
+        let allocate_info = vk::CommandBufferAllocateInfo::default()
             .command_pool(self.raw)
             .level(level)
             .command_buffer_count(count);
@@ -64,7 +64,7 @@ impl Drop for CommandPool {
 
 /// Handles command buffer creation and usage. Properly manages per-pool/frame/thread command resources.
 pub(crate) struct CommandBufferManager {
-    device: Arc<DeviceShared>,
+    _device: Arc<DeviceShared>,
     command_pools: Vec<CommandPool>,
     command_buffers: Vec<CommandBuffer>,
     num_command_buffers_per_pool: u32,
@@ -104,7 +104,7 @@ impl CommandBufferManager {
             .collect::<Vec<_>>();
 
         Ok(Self {
-            device,
+            _device: device,
             command_pools,
             command_buffers,
             num_command_buffers_per_pool,
@@ -154,7 +154,7 @@ impl CommandBuffer {
     }
 
     pub fn begin(&self) -> Result<()> {
-        let begin_info = vk::CommandBufferBeginInfo::builder()
+        let begin_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe {
             self.device
@@ -179,9 +179,9 @@ impl CommandBuffer {
         depth_attachment: Option<&vk::RenderingAttachmentInfo>,
         render_area: vk::Rect2D,
     ) {
-        let empty_depth_attachment = vk::RenderingAttachmentInfo::builder().build();
+        let empty_depth_attachment = vk::RenderingAttachmentInfo::default();
 
-        let rendering_info = vk::RenderingInfo::builder()
+        let rendering_info = vk::RenderingInfo::default()
             .flags(vk::RenderingFlags::empty())
             .color_attachments(color_attachments)
             .depth_attachment(depth_attachment.unwrap_or_else(|| &empty_depth_attachment))
@@ -202,7 +202,7 @@ impl CommandBuffer {
 
     pub fn pipeline_barrier(&self, image_memory_barriers: &[vk::ImageMemoryBarrier2]) {
         let dependency_info =
-            vk::DependencyInfo::builder().image_memory_barriers(image_memory_barriers);
+            vk::DependencyInfo::default().image_memory_barriers(image_memory_barriers);
         unsafe {
             self.device
                 .raw
@@ -428,7 +428,7 @@ impl Device {
         clear_color: [f32; 4],
     ) {
         let swapchain = self.swapchain.lock();
-        let swapchain_color_attachment = vk::RenderingAttachmentInfo::builder()
+        let swapchain_color_attachment = vk::RenderingAttachmentInfo::default()
             .image_view(swapchain.current_image_view_raw())
             .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .resolve_mode(vk::ResolveModeFlags::NONE)
@@ -438,8 +438,7 @@ impl Device {
                 color: vk::ClearColorValue {
                     float32: clear_color,
                 },
-            })
-            .build();
+            });
         let swapchain_render_area = vk::Rect2D {
             extent: swapchain.extent,
             offset: vk::Offset2D { x: 0, y: 0 },
@@ -455,7 +454,7 @@ impl Device {
     ) {
         let swapchain = self.swapchain.lock();
 
-        let image_memory_barrier = vk::ImageMemoryBarrier2::builder()
+        let image_memory_barrier = vk::ImageMemoryBarrier2::default()
             .src_access_mask(vk::AccessFlags2::NONE)
             .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
             .src_stage_mask(vk::PipelineStageFlags2::empty())
@@ -464,15 +463,13 @@ impl Device {
             .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .image(swapchain.current_image_raw())
             .subresource_range(
-                vk::ImageSubresourceRange::builder()
+                vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
-                    .layer_count(1)
-                    .build(),
-            )
-            .build();
+                    .layer_count(1),
+            );
 
         command_buffer.pipeline_barrier(&[image_memory_barrier]);
     }
@@ -483,7 +480,7 @@ impl Device {
     ) {
         let swapchain = self.swapchain.lock();
 
-        let image_memory_barrier = vk::ImageMemoryBarrier2::builder()
+        let image_memory_barrier = vk::ImageMemoryBarrier2::default()
             .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
             .dst_access_mask(vk::AccessFlags2::NONE)
             .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
@@ -492,15 +489,13 @@ impl Device {
             .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
             .image(swapchain.current_image_raw())
             .subresource_range(
-                vk::ImageSubresourceRange::builder()
+                vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
-                    .layer_count(1)
-                    .build(),
-            )
-            .build();
+                    .layer_count(1),
+            );
 
         command_buffer.pipeline_barrier(&[image_memory_barrier]);
     }

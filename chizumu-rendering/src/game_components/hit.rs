@@ -1,26 +1,25 @@
 /*! Game hit objects.
  */
 
-use std::{mem::size_of, sync::Arc, usize::MAX};
+use std::{mem::size_of, sync::Arc};
 
 use anyhow::Result;
-use ash::vk;
-use gpu_allocator::MemoryLocation;
+use chizumu_gpu::{
+    ash::vk,
+    command::CommandBuffer,
+    device::{Device, MAX_FRAMES},
+    gpu_allocator::MemoryLocation,
+    resource::{
+        Buffer, BufferDescriptor, DescriptorBindingBufferWrite, DescriptorBindingWrites,
+        DescriptorSet, DescriptorSetDescriptor, DescriptorSetLayout, DescriptorSetLayoutDescriptor,
+        Pipeline, PipelineDescriptor,
+    },
+    shader::{ShaderModuleDescriptor, ShaderStage},
+    types::{DescriptorSetLayoutBinding, PipelineDepthStencilState, PipelineRasterizationState},
+};
 use nalgebra::{Matrix4, Vector3, Vector4};
 
-use crate::{
-    game_components::HitObject,
-    gpu::{
-        command::CommandBuffer,
-        device::{Device, MAX_FRAMES},
-        resource::{
-            Buffer, BufferDescriptor, DescriptorBindingBufferWrite, DescriptorBindingWrites,
-            DescriptorSet, DescriptorSetDescriptor, DescriptorSetLayout,
-            DescriptorSetLayoutDescriptor, Pipeline, PipelineDescriptor,
-        },
-        shader::{ShaderModuleDescriptor, ShaderStage},
-    },
-};
+use crate::game_components::HitObject;
 
 pub const TAP_Z_RANGE: f32 = 0.14;
 const MAX_HIT_OBJECT_INSTANCE_COUNT: usize = 2048;
@@ -258,24 +257,21 @@ impl HitRenderer {
     fn create_descriptor_set_layout(device: &Device) -> Result<DescriptorSetLayout> {
         let descriptor = DescriptorSetLayoutDescriptor {
             bindings: vec![
-                vk::DescriptorSetLayoutBinding::builder()
+                DescriptorSetLayoutBinding::new()
                     .binding(0)
                     .descriptor_count(1)
                     .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                    .stage_flags(vk::ShaderStageFlags::VERTEX)
-                    .build(),
-                vk::DescriptorSetLayoutBinding::builder()
+                    .stage_flags(vk::ShaderStageFlags::VERTEX),
+                DescriptorSetLayoutBinding::new()
                     .binding(1)
                     .descriptor_count(1)
                     .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                    .stage_flags(vk::ShaderStageFlags::VERTEX)
-                    .build(),
-                vk::DescriptorSetLayoutBinding::builder()
+                    .stage_flags(vk::ShaderStageFlags::VERTEX),
+                DescriptorSetLayoutBinding::new()
                     .binding(2)
                     .descriptor_count(1)
                     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .stage_flags(vk::ShaderStageFlags::VERTEX)
-                    .build(),
+                    .stage_flags(vk::ShaderStageFlags::VERTEX),
             ],
             flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         };
@@ -296,26 +292,22 @@ impl HitRenderer {
             shader_stage: ShaderStage::Fragment,
         })?;
 
-        let vertex_input_attributes = vec![vk::VertexInputAttributeDescription::builder()
+        let vertex_input_attributes = vec![vk::VertexInputAttributeDescription::default()
             .location(0)
             .binding(0)
-            .format(vk::Format::R32G32B32_SFLOAT)
-            .build()];
-        let vertex_input_bindings = vec![vk::VertexInputBindingDescription::builder()
+            .format(vk::Format::R32G32B32_SFLOAT)];
+        let vertex_input_bindings = vec![vk::VertexInputBindingDescription::default()
             .binding(0)
             .stride(12)
-            .input_rate(vk::VertexInputRate::VERTEX)
-            .build()];
+            .input_rate(vk::VertexInputRate::VERTEX)];
 
-        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::default()
             .blend_enable(false)
-            .color_write_mask(vk::ColorComponentFlags::RGBA)
-            .build();
+            .color_write_mask(vk::ColorComponentFlags::RGBA);
 
-        let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
+        let rasterization_state = PipelineRasterizationState::new()
             .polygon_mode(vk::PolygonMode::FILL)
-            .cull_mode(vk::CullModeFlags::empty())
-            .build();
+            .cull_mode(vk::CullModeFlags::empty());
 
         let pipeline_descriptor = PipelineDescriptor {
             descriptor_set_layouts: vec![descriptor_set_layout],
@@ -325,7 +317,7 @@ impl HitRenderer {
             viewport_scissor_extent: device.swapchain_extent(),
             primitive_topology: vk::PrimitiveTopology::TRIANGLE_LIST,
             color_blend_attachments: vec![color_blend_attachment],
-            depth_stencil_state: vk::PipelineDepthStencilStateCreateInfo::builder().build(),
+            depth_stencil_state: PipelineDepthStencilState::new(),
             rasterization_state,
             color_attachment_formats: vec![device.swapchain_color_format()],
             depth_attachment_format: vk::Format::UNDEFINED,

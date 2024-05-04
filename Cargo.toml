@@ -1,2 +1,3 @@
 [workspace]
-members = ["chizumu", "chizumu-graphics"]
+members = ["chizumu", "chizumu-gpu", "chizumu-rendering"]
+resolver = "2"

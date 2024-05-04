@@ -12,6 +12,10 @@ use gpu_allocator::{
     MemoryLocation,
 };
 
+use crate::types::{
+    DescriptorSetLayoutBinding, PipelineDepthStencilState, PipelineRasterizationState,
+};
+
 use super::{device::Device, shader::ShaderModule, DeviceShared};
 
 pub struct BufferDescriptor {
@@ -89,7 +93,7 @@ impl Drop for Buffer {
 pub struct ImageDescriptor {}
 
 pub struct Image {
-    pub(crate) raw: vk::Image,
+    pub(crate) _raw: vk::Image,
 }
 
 pub struct PipelineDescriptor {
@@ -103,8 +107,8 @@ pub struct PipelineDescriptor {
     pub primitive_topology: vk::PrimitiveTopology,
     pub viewport_scissor_extent: vk::Extent2D,
     pub color_blend_attachments: Vec<vk::PipelineColorBlendAttachmentState>, // Should be equal to the number of color attachments.
-    pub depth_stencil_state: vk::PipelineDepthStencilStateCreateInfo,
-    pub rasterization_state: vk::PipelineRasterizationStateCreateInfo,
+    pub depth_stencil_state: PipelineDepthStencilState,
+    pub rasterization_state: PipelineRasterizationState,
 
     /// Required for dynamic rendering.
     pub color_attachment_formats: Vec<vk::Format>,
@@ -162,14 +166,14 @@ impl Drop for DescriptorPool {
 }
 
 pub struct DescriptorSetLayoutDescriptor {
-    pub bindings: Vec<vk::DescriptorSetLayoutBinding>,
+    pub bindings: Vec<DescriptorSetLayoutBinding>,
     pub flags: vk::DescriptorSetLayoutCreateFlags,
 }
 
 pub struct DescriptorSetLayout {
     raw: vk::DescriptorSetLayout,
-    bindings: Vec<vk::DescriptorSetLayoutBinding>,
-    bindings_map: HashMap<u32, vk::DescriptorSetLayoutBinding>,
+    _bindings: Vec<DescriptorSetLayoutBinding>,
+    bindings_map: HashMap<u32, DescriptorSetLayoutBinding>,
     device: Arc<DeviceShared>,
 }
 
@@ -196,7 +200,7 @@ pub struct DescriptorSet {
     ///
     /// XXX: Need to hold onto the resource bindings as well(eg. buffers and images)?
     layout: Arc<DescriptorSetLayout>,
-    device: Arc<DeviceShared>,
+    _device: Arc<DeviceShared>,
 }
 
 /// XXX: The descriptor set is tehcnically responsible for keeping its bounded reosurces valid.
@@ -214,7 +218,7 @@ pub struct DescriptorBindingWrites<'a> {
 
 impl Device {
     pub fn create_buffer(self: &Arc<Self>, desc: BufferDescriptor) -> Result<Buffer> {
-        let create_info = vk::BufferCreateInfo::builder().size(desc.size).usage(
+        let create_info = vk::BufferCreateInfo::default().size(desc.size).usage(
             desc.usage_flags
                 | vk::BufferUsageFlags::TRANSFER_SRC
                 | vk::BufferUsageFlags::TRANSFER_DST,
@@ -282,7 +286,7 @@ impl Device {
             .map(|layout| layout.raw)
             .collect::<Vec<_>>();
         let pipeline_layout_info =
-            vk::PipelineLayoutCreateInfo::builder().set_layouts(&descriptor_set_layouts);
+            vk::PipelineLayoutCreateInfo::default().set_layouts(&descriptor_set_layouts);
         let pipeline_layout = unsafe {
             self.shared
                 .raw
@@ -294,69 +298,68 @@ impl Device {
             .shader_modules
             .iter()
             .map(|shader_module| {
-                vk::PipelineShaderStageCreateInfo::builder()
+                vk::PipelineShaderStageCreateInfo::default()
                     .stage(shader_module.stage.to_vulkan_shader_stage_flag())
                     .module(shader_module.raw)
                     .name(&shader_entry_point_name)
-                    .build()
             })
             .collect::<Vec<_>>();
 
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_attribute_descriptions(&desc.vertex_input_attributes)
             .vertex_binding_descriptions(&desc.vertex_input_bindings);
 
-        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(desc.primitive_topology)
             .primitive_restart_enable(false);
 
-        let viewports = [vk::Viewport::builder()
+        let viewports = [vk::Viewport::default()
             .x(0.0)
             .y(0.0)
             .width(desc.viewport_scissor_extent.width as f32)
             .height(desc.viewport_scissor_extent.height as f32)
             .min_depth(0.0)
-            .max_depth(1.0)
-            .build()];
-        let scissors = [vk::Rect2D::builder()
+            .max_depth(1.0)];
+        let scissors = [vk::Rect2D::default()
             .offset(vk::Offset2D { x: 0, y: 0 })
-            .extent(desc.viewport_scissor_extent)
-            .build()];
-        let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+            .extent(desc.viewport_scissor_extent)];
+        let viewport_state = vk::PipelineViewportStateCreateInfo::default()
             .viewports(&viewports)
             .scissors(&scissors);
 
         // Individual color blend attachments needs color write mask to be RGBA(?).
         // Need one color blend attachment state for each color attachement(render target).
-        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
             .logic_op_enable(false)
             .logic_op(vk::LogicOp::COPY)
             .attachments(&desc.color_blend_attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-        let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
+        let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1)
             .sample_shading_enable(false)
             .min_sample_shading(1.0);
 
-        let mut pipeline_rendering_info = vk::PipelineRenderingCreateInfo::builder()
+        let mut pipeline_rendering_info = vk::PipelineRenderingCreateInfo::default()
             .view_mask(0)
             .color_attachment_formats(&desc.color_attachment_formats)
             .depth_attachment_format(desc.depth_attachment_format)
             .stencil_attachment_format(vk::Format::UNDEFINED);
 
-        let pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+        let vulkan_depth_stencil_state = desc.depth_stencil_state.to_vulkan_state();
+        let vulkan_rasterization_state = desc.rasterization_state.to_vulkan_state();
+
+        let pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&shader_stages)
             .vertex_input_state(&vertex_input_state)
             .input_assembly_state(&input_assembly_state)
             .viewport_state(&viewport_state)
             .color_blend_state(&color_blend_state)
-            .depth_stencil_state(&desc.depth_stencil_state)
+            .depth_stencil_state(&vulkan_depth_stencil_state)
             .multisample_state(&multisample_state)
-            .rasterization_state(&desc.rasterization_state)
+            .rasterization_state(&vulkan_rasterization_state)
             .layout(pipeline_layout)
-            .push_next(&mut pipeline_rendering_info)
-            .build();
+            .push_next(&mut pipeline_rendering_info);
 
         let raw = unsafe {
             self.shared
@@ -396,8 +399,14 @@ impl Device {
         &self,
         desc: DescriptorSetLayoutDescriptor,
     ) -> Result<DescriptorSetLayout> {
-        let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&desc.bindings)
+        let vulkan_descriptor_bindings = desc
+            .bindings
+            .iter()
+            .map(|b| b.to_vulkan_binding())
+            .collect::<Vec<_>>();
+
+        let create_info = vk::DescriptorSetLayoutCreateInfo::default()
+            .bindings(&vulkan_descriptor_bindings)
             .flags(desc.flags);
         let raw = unsafe {
             self.shared
@@ -414,14 +423,14 @@ impl Device {
 
         Ok(DescriptorSetLayout {
             raw,
-            bindings: desc.bindings,
+            _bindings: desc.bindings,
             bindings_map,
             device: self.shared.clone(),
         })
     }
 
     pub fn create_descriptor_set(&self, desc: DescriptorSetDescriptor) -> Result<DescriptorSet> {
-        let allocate_info = vk::DescriptorSetAllocateInfo::builder()
+        let allocate_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(self.global_descriptor_pool.raw)
             .set_layouts(std::slice::from_ref(&desc.layout.raw));
         let raws = unsafe { self.shared.raw.allocate_descriptor_sets(&allocate_info)? };
@@ -429,7 +438,7 @@ impl Device {
         Ok(DescriptorSet {
             raw: raws[0],
             layout: desc.layout,
-            device: self.shared.clone(),
+            _device: self.shared.clone(),
         })
     }
 
@@ -442,7 +451,9 @@ impl Device {
         let mut vulkan_write_descriptors = Vec::new();
 
         // Image/buffer descriptor write infos need to be valid when calling vkUpdateDescriptorSets.
-        let mut descriptor_buffer_infos = Vec::<vk::DescriptorBufferInfo>::new();
+        // Write structures need to be updated and referenced to this array before calling vkUpdateDescriptorSets.
+        // Second element is index to `vulkan_write_descriptors`.
+        let mut descriptor_buffer_infos = Vec::<(vk::DescriptorBufferInfo, usize)>::new();
 
         for buffer_write in &writes.buffers {
             if let Some(binding) = descriptor_set
@@ -455,7 +466,7 @@ impl Device {
                     "Descriptor set layout binding index and buffer write binding do not match."
                 );
 
-                let mut vulkan_write_descriptor = vk::WriteDescriptorSet::builder()
+                let vulkan_write_descriptor = vk::WriteDescriptorSet::default()
                     .dst_set(descriptor_set.raw)
                     .dst_binding(binding.binding)
                     .dst_array_element(0)
@@ -463,19 +474,14 @@ impl Device {
 
                 match binding.descriptor_type {
                     vk::DescriptorType::UNIFORM_BUFFER | vk::DescriptorType::STORAGE_BUFFER => {
-                        let vulkan_buffer_info = vk::DescriptorBufferInfo::builder()
+                        let vulkan_buffer_info = vk::DescriptorBufferInfo::default()
                             .offset(0)
                             .range(buffer_write.buffer.size as u64)
-                            .buffer(buffer_write.buffer.raw)
-                            .build();
-                        descriptor_buffer_infos.push(vulkan_buffer_info);
+                            .buffer(buffer_write.buffer.raw);
+                        descriptor_buffer_infos
+                            .push((vulkan_buffer_info, vulkan_write_descriptors.len()));
 
-                        // 1 buffer info for the whole descriptor write element.
-                        vulkan_write_descriptor = vulkan_write_descriptor.buffer_info(
-                            std::slice::from_ref(descriptor_buffer_infos.last().unwrap()),
-                        );
-
-                        vulkan_write_descriptors.push(vulkan_write_descriptor.build());
+                        vulkan_write_descriptors.push(vulkan_write_descriptor);
                     }
                     _ => {
                         return Err(anyhow::anyhow!(
@@ -490,6 +496,12 @@ impl Device {
                     buffer_write.binding_index
                 ));
             }
+        }
+
+        // Update descriptor resource infos for write structures.
+        for (buffer_info, write_index) in &descriptor_buffer_infos {
+            vulkan_write_descriptors[*write_index] = vulkan_write_descriptors[*write_index]
+                .buffer_info(std::slice::from_ref(buffer_info))
         }
 
         unsafe {
